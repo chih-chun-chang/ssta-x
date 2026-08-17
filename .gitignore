@@ -1,0 +1,17 @@
+# build output
+build/
+*.a
+*.o
+*.so
+*.out
+
+# profiling artifacts
+*.nsys-rep
+*.ncu-rep
+*.sqlite
+
+# editors
+.vscode/
+.idea/
+*.swp
+

@@ -1,0 +1,3 @@
+[submodule "3rd-party/Parser-SPEF"]
+	path = 3rd-party/Parser-SPEF
+	url = https://github.com/OpenTimer/Parser-SPEF.git
