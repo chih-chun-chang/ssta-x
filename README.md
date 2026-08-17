@@ -3,15 +3,10 @@
 **GPU-accelerated first-order block-based statistical static timing analysis.**
 
 SSTA-X analyzes circuit timing under process variation by propagating first-order
-canonical delay models through a levelized timing graph on the GPU. Unlike
-Monte-Carlo SSTA, which needs thousands of samples to converge, first-order
+canonical delay models through a levelized timing graph on the GPU. First-order
 block-based SSTA (FB-SSTA) approximates timing distributions analytically by
-propagating statistical moments — and unlike existing FB-SSTA implementations,
-which are CPU-parallel and saturate at 8–16 threads, SSTA-X maps the entire
-propagation onto GPU kernels.
+propagating statistical moments. SSTA-X maps the entire propagation onto GPU kernels.
 
-Against IITiMER, the first-place winner of the TAU contest, SSTA-X reaches
-**3.10×–12.47× speedup** on large-scale designs with millions of gates.
 
 This is the reference implementation for:
 
@@ -146,7 +141,6 @@ ssta/cuda/        the GPU kernels
 ssta/unit/        unit conversion for library and parasitics values
 ssta/utility/     tokenizer, logging, filesystem helpers
 main/             the ssta-x command-line driver
-examples/         minimal API usage
 benchmark/        TAU contest library and small designs
 ```
 
@@ -166,7 +160,6 @@ are distributed by the TAU contests rather than bundled here. See
 | [Parser-SPEF](https://github.com/OpenTimer/Parser-SPEF) (with bundled PEGTL) | `3rd-party/Parser-SPEF` (submodule) | MIT |
 | [nholthaus/units](https://github.com/nholthaus/units) | `ssta/unit/units.hpp` | MIT |
 | [OpenTimer](https://github.com/OpenTimer/OpenTimer) — Verilog parser and exception handling, adapted | `ssta/verilog/`, `ssta/exception.hpp` | MIT |
-| Counting sort in CUDA by Yibo Lin | `ssta/cuda/sort.cuh` | MIT |
 
 ## Citation
 
