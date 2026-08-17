@@ -11,7 +11,6 @@ Timer& Timer::read_spef(std::filesystem::path path) {
   if(!(spef->error)) {
     _rebase_unit(*spef);
     _read_spef(*spef);
-    //std::cout << "added " << spef->nets.size() << " spef nets\n";  
   }
 
   return *this;
@@ -87,11 +86,9 @@ void Timer::_read_spef(spef::Spef& spef) {
         portName = spef_net.connections[i].name;
         _rct.ports.emplace_back(stoi[spef_net.connections[i].name]);
         _rct.ports_name.emplace_back(spef_net.connections[i].name);
-        //std::cout << portName << " -> ";
       }
       else { // taps
         tapName = spef_net.connections[i].name;
-        //std::cout << tapName << " ";
         _wires[portName].emplace_back(tapName);
         _rwires[tapName] = portName;
         _rct.taps.emplace_back(stoi[spef_net.connections[i].name]);
@@ -126,7 +123,6 @@ void Timer::_read_spef(spef::Spef& spef) {
   _rct.nodes_st.emplace_back(nodes_st);
   _rct.edges_st.emplace_back(edges_st);
   _rct.taps_st.emplace_back(taps_st);
-  //std::cout << "max rc nodes: " << max_num_nodes << std::endl;
 }
 
 // Procedure: _rebase_unit
@@ -138,8 +134,6 @@ void Timer::_rebase_unit(spef::Spef& spef)
   // Convert the capacitive load unit
   if(!_capacitance_unit) 
     _capacitance_unit = capu;
-    //if(_capacitance_unit = capu; _capacitance_unit) 
-      //std::cout << "use spef capacitance unit " << *_capacitance_unit << std::endl;
   else if(capu) 
   {
     float s = (*capu / *_capacitance_unit).value();
@@ -153,8 +147,6 @@ void Timer::_rebase_unit(spef::Spef& spef)
   // conver teh resistance unit
   if(!_resistance_unit) 
     _resistance_unit = resu;
-    //if(_resistance_unit = resu; _resistance_unit) 
-      //std::cout << "use spef resistance unit " << *_resistance_unit << std::endl;
   else if(resu)
   {
     float s = (*resu / *_resistance_unit).value();

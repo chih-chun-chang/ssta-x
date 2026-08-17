@@ -2,14 +2,7 @@
 
 Timer& Timer::read_celllib(std::filesystem::path path) 
 {
-  // Create a verilog module
-  //auto celllib = std::make_shared<cell::Celllib>();
-  //*celllib = cell::read_celllib(path);
-
   _celllib = std::make_shared<cell::Celllib>(cell::read_celllib(path));
-
-  //_verilog(*module);
-
   return *this;
 }
 
@@ -27,41 +20,8 @@ Timer& Timer::read_verilog(std::filesystem::path path)
 
 void Timer::_verilog(vlog::Module& module) 
 {
-  // Step 1: Scan the primary input and create a pin for each primary input port.
-  // Each primary input is automatically connected to a net whose name is the same
-  // as the name of the primary input.
-  //for(const auto& pi : module.inputs) {
-  //  _insert_primary_input(pi);
-  //}
-  
-  // Step 2: Scan the primary output and create a pin for each primary output port.
-  // Each primary output is automatically connected to a net whose name is the same
-  // as the name of the primary output.
-  //for(const auto& po : module.outputs) {
-  //  _insert_primary_output(po);
-  //}
-  
-  // Step 3: Scan the wires and insert a net for each wire. Each wire is automatically
-  // attached to a net. The connection of each net is specified by the gates.
-  //for(const auto& wire : module.wires) {
-  //  _insert_net(wire);
-  //}
-  
-  // Step 4: Scan the gate through verilog file. Insert a new gate for each gate
-  // being iterated and a set of pins corresponding to each cellpin of the gate. Then,
-  // for each pin-net mapping specified in the gate, connect the pin to the net.
-  //for(const auto& gate : module.gates) {
-    //_insert_gate(gate.name, gate.cell);
-    //for(const auto& [c, n] : gate.cellpin2net) {
-      //std::cout << gate.cell << " " << gate.name << ":" << c << std::endl;
-      //auto& pin = _insert_pin(gate.name + ':' + c);
-      //auto& net = _insert_net(n); 
-      //_connect_pin(pin, net);
-    //}
-  //}
   _inputs = module.inputs;
   _outputs = module.outputs;
-
   
   // load cell lib
   if (!_celllib) 
@@ -75,13 +35,6 @@ void Timer::_verilog(vlog::Module& module)
     _numopins[gate.name] = cl->lib[gate.cell]->numoPins;
     _gate2cell[gate.name] = gate.cell;
     for(const auto& [c, n] : gate.cellpin2net) {
-      //std::cout << "mapping: " << c << "->" << n << " " 
-      //          << gate.name + ":" + c << " "
-      //          << "input cell: " << gate.cell                
-      //          << std::endl;
-      std::string pin = gate.name + ":" + c; // inst_5:ZN 
-      if (_pin2cell.find(pin) != _pin2cell.end())
-        throw std::runtime_error("Duplicate pin to cell mapping\n");
       _pin2cell[pin] = gate.cell;
       if (std::find(cl->lib[gate.cell]->iPinNames.begin(), cl->lib[gate.cell]->iPinNames.end(), c) != cl->lib[gate.cell]->iPinNames.end()) {
         _ipin2gate[pin] = gate.name;
@@ -108,180 +61,6 @@ void Timer::_verilog(vlog::Module& module)
 
 void Timer::_debug() {
   // DEBUG
-  /*
-  int num_net = _rct.names.size();
-  for (int i = 0; i < num_net; ++i) {
-    std::cout << std::endl;
-    std::cout << i << std::endl;
-    std::cout << "net: " << _rct.names[i] << std::endl;
-    
-
-    std::cout << "port: " << _rct.ports_name[i] << std::endl;
-    int nodes_st = _rct.nodes_st[i];
-    int nodes_en = _rct.nodes_st[i+1];
-    int edges_st = _rct.edges_st[i];
-    int edges_en = _rct.edges_st[i+1];
-    int taps_st = _rct.taps_st[i];
-    int taps_en = _rct.taps_st[i+1];
-
-    
-    for (int j = nodes_st; j < nodes_en; ++j) {
-      std::cout << _rct.caps[j] << " ";
-    }
-    std::cout << std::endl;
-    std::cout << "\ndistances: ";
-    for (int j = nodes_st; j < nodes_en; ++j) {
-      std::cout << _deRct.distances[j] << " ";
-    }
-    std::cout << "\ncounts: ";
-    for (int j = nodes_st; j < nodes_en; ++j) {
-      std::cout << _deRct.counts[j] << " ";
-    }
-    std::cout << "\norders: ";
-    for (int j = nodes_st; j < nodes_en; ++j) {
-      std::cout << _deRct.orders[j] << " ";
-    }
-    std::cout << "\noutputs: ";
-    for (int j = nodes_st; j < nodes_en; ++j) {
-      std::cout << _deRct.outputs[j] << " ";
-    }
-    std::cout << "\npid: ";
-    for (int j = nodes_st; j < nodes_en; ++j) {
-      std::cout << _deRct.pid[j] << " ";
-    }
-    std::cout << "\npres: \n";
-    for (int j = nodes_st; j < nodes_en; ++j) {
-      std::cout << _deRct.pres[j] << " ";
-    }
-    std::cout << std::endl;
-    
-    for (int j = edges_st; j < edges_en; ++j) {
-      std::cout << _rct.edges_s[j] << " ";
-    }
-    std::cout << std::endl;
-
-    for (int j = edges_st; j < edges_en; ++j) {
-      std::cout << _rct.edges_t[j] << " ";
-    }
-    std::cout << std::endl;
-    
-    for (int j = edges_st; j < edges_en; ++j) {
-      std::cout << _deRct.orders[_rct.edges_s[j]] << " ";
-    }
-    std::cout << std::endl;
-
-    for (int j = edges_st; j < edges_en; ++j) {
-      std::cout << _deRct.orders[_rct.edges_t[j]] << " ";
-    }
-    std::cout << std::endl;
-
-
-    
-    std::cout << "taps: ";
-    for (int j = taps_st; j < taps_en; ++j) {
-      std::cout << _rct.taps_name[j] << " ";
-    }
-    std::cout << std::endl;
-    
-    std::cout << "num nodes: " << _rct.nodes_st[i+1]-_rct.nodes_st[i] << std::endl;
-    std::cout << "port: " << _rct.ports[i] << std::endl;
-    int taps_st = _rct.taps_st[i];
-    int taps_en = _rct.taps_st[i+1];
-    std::cout << "tap names: ";
-    for (int j = taps_st; j < taps_en; ++j) {
-      std::cout << _rct.taps_name[j] << " ";
-    }
-    std::cout << "\ntaps: ";
-    for (int j = taps_st; j < taps_en; ++j) {
-      std::cout << _rct.taps[j] << " ";
-    }
-    std::cout << "\nedges: \n";
-    for (int j = edges_st; j < edges_en; ++j) {
-      std::cout << _rct.edges_s[j] << " -> " << _rct.edges_t[j] 
-                << " : " << _rct.edges_s_str[j] << " -> " << _rct.edges_t_str[j]
-                << " (" << _rct.ress[j] << ") " << std::endl;
-    }
-    
-    
-
-    //std::cout << "results:";
-    
-    
-    std::cout << "\ndistances: ";
-    for (int j = nodes_st; j < nodes_en; ++j) {
-      std::cout << _deRct.distances[j] << " ";
-    }
-    std::cout << "\ncounts: ";
-    for (int j = nodes_st; j < nodes_en; ++j) {
-      std::cout << _deRct.counts[j] << " ";
-    }
-    std::cout << "\norders: ";
-    for (int j = nodes_st; j < nodes_en; ++j) {
-      std::cout << _deRct.orders[j] << " ";
-    }
-    
-    
-    std::cout << "caps: \n";
-    for (int j = nodes_st; j < nodes_en; ++j) {
-      std::cout << _rct.caps[j] << " ";
-    }
-    std::cout << "\npid: ";
-    for (int j = nodes_st; j < nodes_en; ++j) {
-      std::cout << _deRct.pid[j] << " ";
-    }
-    std::cout << "\npres: \n";
-    for (int j = nodes_st; j < nodes_en; ++j) {
-      std::cout << _deRct.pres[j] << " ";
-    }
-  
-    
-
-  
-    
-    std::cout << "delay: \n";
-    for (int j = nodes_st; j < nodes_en; ++j) {
-      std::cout << _deRct.delay[4*j] << " ";
-                //<< _deRct.delay[4*j+1] << " " 
-                //<< _deRct.delay[4*j+2] << " " 
-                //<< _deRct.delay[4*j+3] << "\n";
-    }
-    std::cout << std::endl;
-
-    std::cout << "slew: \n";
-    for (int j = nodes_st; j < nodes_en; ++j) {
-      std::cout << _deRct.slew[4*j] << " ";
-                //<< _deRct.delay[4*j+1] << " " 
-                //<< _deRct.delay[4*j+2] << " " 
-                //<< _deRct.delay[4*j+3] << "\n";
-    }
-    std::cout << std::endl;
-    
-
-    std::cout << "tap cap: \n";
-    for (int j = taps_st; j < taps_en; ++j) {
-      std::cout << _rct.tapCaps[2*j] << " " << _rct.tapCaps[2*j + 1] << "\n"; 
-    }
-    
-    std::cout << "tap delay: \n";
-    for (int j = taps_st; j < taps_en; ++j) {
-      std::cout << _deRct.tapDelay[4*j] << " " 
-                << _deRct.tapDelay[4*j+1] << " " 
-                << _deRct.tapDelay[4*j+2] << " " 
-                << _deRct.tapDelay[4*j+3] << "\n";
-    }
-    
-    std::cout << "tap slew: \n";
-    for (int j = taps_st; j < taps_en; ++j) {
-      std::cout << _deRct.tapSlew[4*j] << " " 
-                << _deRct.tapSlew[4*j+1] << " " 
-                << _deRct.tapSlew[4*j+2] << " " 
-                << _deRct.tapSlew[4*j+3] << "\n";
-    }
-                
-    //std::cout << std::endl;
-  }
-  */
-  
 }
 
 
@@ -338,24 +117,12 @@ void Timer::_build_connections(int num_threads) {
       }
     }
     if (_q.empty()) {
-      //while (!q2.empty()) {
-      //  q.push(q2.front());
-      //  q2.pop();
-      //}
-      //l++;
       _q.swap(_q2);
       if (!_q.empty()) {
         l++;
       }
     }
   }
-
-  // check
-  //int total = 0;
-  //for (const auto& [level, vs] : _forward) {
-  //  total += vs.size();
-  //}
-  //assert(total == _gates.size());
 
   // backward
   for (const auto& gate : _gates) {
@@ -365,13 +132,7 @@ void Timer::_build_connections(int num_threads) {
   for (const auto& po : _outputs) {
     _qback.push(po);
   }
-  //for (const auto& v : _vback) {
-  //  _backward[0].emplace_back(v);
-  //  for (const auto& ipin : _gate2ipin[v]) {
-  //    _qback.push(ipin);
-  //  } 
-  //}
-  //l = 1;
+  
   if (!_vback.empty()) {
     _backward[0].insert(_backward[0].end(), _vback.begin(), _vback.end());
     for (const auto& v : _vback) {
@@ -402,11 +163,6 @@ void Timer::_build_connections(int num_threads) {
       }
     }
     if (_qback.empty()) {
-      //while (!q2.empty()) {
-      //  qback.push(q2.front());
-      //  q2.pop();
-      //}
-      //l++;
       _qback.swap(_q2);
       if (!_qback.empty()) {
         l++;
@@ -416,248 +172,6 @@ void Timer::_build_connections(int num_threads) {
 
 }
 
-
-/*
-void Timer::_build_connections(int num_threads) {
-  omp_set_num_threads(num_threads);
-
-  _num_visited.clear();
-  _num_fanout.clear();
-  _vback.clear();
-  _forward.clear();
-  _backward.clear();
-
-  for (const auto& gate : _gates) {
-    _isvisited[gate] = false;
-    _num_visited[gate] = 0;
-  }
-
-  // =========================================================
-  // Forward levelization (parallel within each level)
-  // =========================================================
-  
-  // Seed: all primary inputs
-  std::vector<std::string> current_frontier;
-  for (const auto& pi : _inputs) {
-    current_frontier.push_back(pi);
-  }
-
-  int l = 0;
-  while (!current_frontier.empty()) {
-    // For each pin in the current frontier, find all reachable gates
-    // and collect next-level output pins
-    //
-    // We split this into two phases:
-    //   Phase 1: (parallel) For each pin, find target gates and 
-    //            atomically increment visit counts
-    //   Phase 2: (parallel) Check which gates are now ready, 
-    //            collect their output pins for the next frontier
-    
-    // Phase 1: Collect all (tap, gate) pairs from current frontier
-    // Each frontier pin may fan out to multiple taps via wires
-    struct TapInfo {
-      std::string tap;
-      std::string gate;
-      bool is_clk_tap;
-    };
-    
-    std::vector<TapInfo> all_taps;
-    
-    // This loop reads from wires/ipin2gate (no writes) — safe to parallelize reads
-    // But std::unordered_map lookups are not thread-safe for concurrent reads 
-    // with other writes, so we keep this serial for correctness
-    // (the bottleneck is Phase 2 anyway)
-    for (const auto& pin : current_frontier) {
-      auto wit = _wires.find(pin);
-      if (wit == _wires.end()) continue;
-      
-      for (const auto& tap : wit->second) {
-        auto git = _ipin2gate.find(tap);
-        if (git == _ipin2gate.end()) continue; // PO
-        
-        std::string gate = git->second;
-        bool is_clk = false;
-        if (_hasclk[gate] && tap == _clknet[gate]) {
-          is_clk = true;
-        }
-        all_taps.push_back({tap, gate, is_clk});
-      }
-    }
-    
-    // Phase 2: Process taps and determine which gates are ready
-    // We need atomicity for _num_visited increments
-    std::vector<std::string> next_frontier;
-    std::vector<std::string> level_gates;
-    
-    // Use a mutex for thread safety on shared containers
-    // But since the main overhead is in large designs with many taps,
-    // we can parallelize the increment and collect ready gates
-    
-    // For OpenMP: use atomic increments and collect in thread-local vectors
-    int n_taps = all_taps.size();
-    
-    // Thread-local storage for gates and next pins
-    std::vector<std::vector<std::string>> tl_level_gates(omp_get_max_threads());
-    std::vector<std::vector<std::string>> tl_next_frontier(omp_get_max_threads());
-    std::vector<std::vector<std::string>> tl_vback(omp_get_max_threads());
-    
-    #pragma omp parallel for schedule(dynamic, 64)
-    for (int i = 0; i < n_taps; i++) {
-      int tid = omp_get_thread_num();
-      const auto& info = all_taps[i];
-      const std::string& gate = info.gate;
-      
-      if (info.is_clk_tap) {
-        // Clock pin: gate is ready immediately
-        bool expected = false;
-        // Use compare_exchange via a simple flag check with critical section
-        bool should_process = false;
-        #pragma omp critical(visit_check)
-        {
-          if (!_isvisited[gate]) {
-            _isvisited[gate] = true;
-            should_process = true;
-          }
-        }
-        if (should_process) {
-          for (const auto& op : _gate2opin[gate]) {
-            tl_next_frontier[tid].push_back(op);
-          }
-          tl_level_gates[tid].push_back(gate);
-          tl_vback[tid].push_back(gate);
-        }
-      }
-      else {
-        // Non-clock: increment visit count
-        int count;
-        #pragma omp atomic capture
-        count = ++_num_visited[gate];
-        
-        if (count == _numipins[gate]) {
-          #pragma omp critical(visit_check)
-          {
-            _isvisited[gate] = true;
-          }
-          for (const auto& op : _gate2opin[gate]) {
-            tl_next_frontier[tid].push_back(op);
-            // Compute fanout while we're here
-            #pragma omp critical(fanout_update)
-            {
-              _num_fanout[gate] = _wires[op].size();
-            }
-          }
-          tl_level_gates[tid].push_back(gate);
-        }
-      }
-    }
-    
-    // Merge thread-local results
-    for (int t = 0; t < omp_get_max_threads(); t++) {
-      level_gates.insert(level_gates.end(), 
-                         tl_level_gates[t].begin(), tl_level_gates[t].end());
-      next_frontier.insert(next_frontier.end(), 
-                           tl_next_frontier[t].begin(), tl_next_frontier[t].end());
-      _vback.insert(_vback.end(), 
-                     tl_vback[t].begin(), tl_vback[t].end());
-    }
-    
-    if (!level_gates.empty()) {
-      _forward[l] = std::move(level_gates);
-      l++;
-    }
-    
-    current_frontier = std::move(next_frontier);
-  }
-
-  // =========================================================
-  // Backward levelization (parallel within each level)
-  // =========================================================
-  
-  for (const auto& gate : _gates) {
-    _isvisited[gate] = false;
-    _num_visited[gate] = 0;
-  }
-
-  // Seed: primary outputs + vback (FF inputs)
-  current_frontier.clear();
-  for (const auto& po : _outputs) {
-    current_frontier.push_back(po);
-  }
-
-  l = 0;
-  if (!_vback.empty()) {
-    _backward[0].insert(_backward[0].end(), _vback.begin(), _vback.end());
-    for (const auto& v : _vback) {
-      for (const auto& ipin : _gate2ipin[v]) {
-        current_frontier.push_back(ipin);
-      }
-    }
-    l = 1;
-  }
-
-  while (!current_frontier.empty()) {
-    // Collect all (pin -> port -> gate) from current frontier
-    struct BackInfo {
-      std::string gate;
-    };
-    std::vector<BackInfo> all_gates;
-
-    for (const auto& pin : current_frontier) {
-      auto rit = _rwires.find(pin);
-      if (rit == _rwires.end()) continue;
-      
-      std::string port = rit->second;
-      auto oit = _opin2gate.find(port);
-      if (oit == _opin2gate.end()) continue;
-      
-      all_gates.push_back({oit->second});
-    }
-
-    std::vector<std::string> next_frontier;
-    std::vector<std::string> level_gates;
-
-    int n_back = all_gates.size();
-    std::vector<std::vector<std::string>> tl_level_gates(omp_get_max_threads());
-    std::vector<std::vector<std::string>> tl_next_frontier(omp_get_max_threads());
-
-    #pragma omp parallel for schedule(dynamic, 64)
-    for (int i = 0; i < n_back; i++) {
-      int tid = omp_get_thread_num();
-      const std::string& gate = all_gates[i].gate;
-
-      int count;
-      #pragma omp atomic capture
-      count = ++_num_visited[gate];
-
-      if (count == _num_fanout[gate]) {
-        #pragma omp critical(back_visit)
-        {
-          _isvisited[gate] = true;
-        }
-        for (const auto& ip : _gate2ipin[gate]) {
-          tl_next_frontier[tid].push_back(ip);
-        }
-        tl_level_gates[tid].push_back(gate);
-      }
-    }
-
-    // Merge
-    for (int t = 0; t < omp_get_max_threads(); t++) {
-      level_gates.insert(level_gates.end(),
-                         tl_level_gates[t].begin(), tl_level_gates[t].end());
-      next_frontier.insert(next_frontier.end(),
-                           tl_next_frontier[t].begin(), tl_next_frontier[t].end());
-    }
-
-    if (!level_gates.empty()) {
-      _backward[l] = std::move(level_gates);
-      l++;
-    }
-
-    current_frontier = std::move(next_frontier);
-  }
-}
-*/
 
 void Timer::_get_arch_timing() {
   // load cell lib
@@ -690,7 +204,7 @@ void Timer::_get_arch_timing() {
       ipin_map[input] = ipin_index++;
     }
   }
-  for (const auto& gate : _gates) { // TODO: check _gates to _forward
+  for (const auto& gate : _gates) { 
     //std::string cell = _gate2cell[gate];
     std::string cell = _gate2cell.at(gate);
     if (cell_map.find(cell) == cell_map.end()) {
@@ -698,8 +212,6 @@ void Timer::_get_arch_timing() {
       cell_index++;
       if (_hasclk[gate]) { // for FF
         // timing
-        //_t.tcell_numIPins.emplace_back(cl->lib[cell]->numiPins);
-        //_t.tcell_numOPins.emplace_back(cl->lib[cell]->numoPins);
         for (int o = 0; o < cl->lib[cell]->numoPins; ++o) {
           std::string oP = cl->lib[cell]->oPinNames[o];
           _t.tcell_timing_sense.emplace_back(cl->lib[cell]->coTiming[oP].sense); // P, Neg, Non
@@ -720,7 +232,6 @@ void Timer::_get_arch_timing() {
         // constraint
         for (int i = 0; i < cl->lib[cell]->numiPins; ++i) {
           std::string iP = cl->lib[cell]->iPinNames[i];
-          //_t.tcell_constraint_setup_type.emplace_back(cl->lib[cell]->setup[iP].edgeType);  // Falling, Rising
           for (int ii = 0; ii < 3; ++ii) {
             _t.tcell_constraint_setup_data.emplace_back(cl->lib[cell]->setup[iP].fall[ii]);
           }
@@ -738,8 +249,6 @@ void Timer::_get_arch_timing() {
 
       }
       else { // for combinational cell
-        //_t.cell_numIPins.emplace_back(cl->lib[cell]->numiPins);
-        //_t.cell_numOPins.emplace_back(cl->lib[cell]->numoPins);
         for (int o = 0; o < cl->lib[cell]->numoPins; ++o) {
           std::string oP = cl->lib[cell]->oPinNames[o];
           for (int i = 0; i < cl->lib[cell]->numiPins; ++i) {
@@ -825,7 +334,6 @@ void Timer::_get_arch_timing() {
   int num_opin = 0;
   int num_gates = 0;
   int num_nipin = 0;
-  //_t.ipin_ptr.emplace_back(num_ipin);
   _t.opin_ptr.emplace_back(num_opin);
   _t.ipint_ptr.emplace_back(0);
   _t.nipin_ptr.emplace_back(num_nipin);
@@ -836,13 +344,8 @@ void Timer::_get_arch_timing() {
   for (const auto& port : _inputs) {
     if (ipin_map.find(port) != ipin_map.end()) {
       _t.ipin.emplace_back(ipin_map[port]);
-      //_t.ipin_string.emplace_back(port);
       _t.ipin_ptr.emplace_back(num_ipin++);
     }
-    //_t.opin.emplace_back(opin_map[port]);
-    //_t.opin_string.emplace_back(port);
-    // port --> net
-    // net --> tap
     _t.wp.emplace_back(port_map[port]);
     for (const auto& taps : _wires[port]) {
       if (ipin_map.find(taps) != ipin_map.end()) {
@@ -852,26 +355,9 @@ void Timer::_get_arch_timing() {
       }
     }
     _t.nipin_ptr.emplace_back(num_nipin);
-    //num_nipin += _wires[port].size();
   }
   _t.ipin_ptr.emplace_back(num_ipin);
-
-  /*
-  for (const auto& wp : _t.wp) {
-    std::cout << wp << " ";
-    std::cout << " : " << _rct.ports_name[wp] << " -> ";
-    for (int j = _rct.taps_st[wp]; j < _rct.taps_st[wp+1]; ++j) {
-      std::cout << _rct.taps_name[j] << " ";
-    }
-    std::cout << std::endl;
-  }
-  std::cout << std::endl;
-  */
-  
-  //num_gates += _inputs.size();
-  //_t.ipin_level_ptr.emplace_back(num_ipin);
   _t.nipin_level_ptr.emplace_back(num_nipin);
-  //_t.cell_level_ptr.emplace_back(num_gates);
 
   int num_of_ipins = 0;
   int num_of_opins = 0;
@@ -896,7 +382,6 @@ void Timer::_get_arch_timing() {
           _t.ipin.emplace_back(ipin_map[cpin]);
           num_ipin++;
           num_of_ipins++;
-          //_t.ipin_ptr.emplace_back(num_ipin);
         }
       }
       else {
@@ -912,7 +397,6 @@ void Timer::_get_arch_timing() {
         }
       }
       if (print) std::cout << "\n";
-      //num_ipin += _gate2ipin[gate].size();
       _t.ipin_ptr.emplace_back(num_ipin);
 
       // output pin
@@ -970,8 +454,6 @@ void Timer::_get_arch_timing() {
     _t.cell_level_ptr.emplace_back(num_gates);
     _t.opin_level_ptr.emplace_back(num_opin);
   }
-  //_t.opin_ptr.emplace_back(num_opin);
-  //_t.nipin_ptr.emplace_back(num_nipin);
   for (const auto& out : _outputs) {
     if (ipin_map.find(out) != ipin_map.end()) {
       _t.ipin.emplace_back(ipin_map[out]);
@@ -999,9 +481,7 @@ void Timer::_get_arch_timing() {
   _t.cell_blevel_ptr.emplace_back(0);
   _t.bnipin_ptr_each_gate.emplace_back(0);
   for (const auto& [level, insts] : _backward) {
-    //std::cout << "level: " << level << std::endl;
     for (const auto& inst : insts) {
-      //std::cout << inst << " ";
       _t.map_to_forward.emplace_back(map2forward[inst]);
       for (const auto& opin : _gate2opin[inst]) {
         _t.bnipin_ptr.emplace_back(backward_nipin_ptr[opin]);
@@ -1009,46 +489,10 @@ void Timer::_get_arch_timing() {
       num_opin += _gate2opin[inst].size();
       _t.bnipin_ptr_each_gate.emplace_back(num_opin);
     }
-    //std::cout << std::endl;
     num_gates += insts.size();
     _t.cell_blevel_ptr.emplace_back(num_gates);
   }
 
-  /*
-  std::cout << "bnipin_ptr_each_gate: ";
-  for (const auto& p : _t.bnipin_ptr_each_gate) {
-    std::cout << p << " ";
-  }
-  std::cout << std::endl;
-  std::cout << "bnipin_ptr: ";
-  for (const auto& p : _t.bnipin_ptr) {
-    std::cout << p << " ";
-  }
-  std::cout << std::endl;
-  std::cout << "nipin: ";
-  for (const auto& p : _t.nipin) {
-    std::cout << p << " ";
-  }
-  std::cout << std::endl;
-  */
-
-
-  // debug
-  // (1) cell_level_ptr: OK
-  // (2) cell_hasclk; OK
-  // (3) cell_type; OK
-  // (4) ipin;
-  // (5) ipin_ptr;
-  // (6) ipin_ptr_level;
-  // (7) wp;
-  // (8) nipins
-  // (9) nipin_ptr;
-  // (10) nipin_level_ptr;
-
-  //std::cout << "_t.ipin.size(): " << _t.ipin.size() << std::endl;
-  //std::cout << "_t.opin.size(): " << _t.opin.size() << std::endl;
-
-  
   // timing
   _t.ipin_timing_data_slew.resize(_t.ipin.size()*32);
   _t.ipin_timing_data_at.resize(_t.ipin.size()*32);
@@ -1207,7 +651,6 @@ PinGraph Timer::export_levelized_pin_deps() const {
     G.cell_numi.emplace_back(c->numiPins);
     G.cell_numo.emplace_back(c->numoPins);
 
-    //std::cout << cellname << " " << uid << " is seq?: " << c->coTiming.empty() << std::endl;
     bool is_seq = !c->coTiming.empty();
     G.cell_is_seq.emplace_back((uint8_t)(is_seq ? 1 : 0));
 
@@ -1220,8 +663,6 @@ PinGraph Timer::export_levelized_pin_deps() const {
     G.tcell_ptr[uid]     = (int)G.tcell_sense.size();
 
     if (!is_seq) { // comb: reserve ptr to total (i, o) pairs
-      //int base_ptr = (int)G.cell_arch_sense.size();
-      //G.cell_arch_ptr.emplace_back(base_ptr);
       for (int ii = 0; ii < c->numiPins; ++ii) { // append all (i,o) pairs in LIB order
         const std::string& iP = c->iPinNames[ii];
         auto it_i = c->ioTiming.find(iP);
@@ -1261,8 +702,6 @@ PinGraph Timer::export_levelized_pin_deps() const {
         const std::string& oP = c->oPinNames[oo];
         auto itq = c->coTiming.find(oP);
         bool has = (itq != c->coTiming.end());
-        //const auto& arc = itq->second;
-        //G.tcell_sense.emplace_back((uint8_t)(has ? arc.sense : cell::TimingSense::PositiveUnate));
         
         G.tcell_sense.emplace_back((uint8_t)(has ? itq->second.sense : cell::TimingSense::PositiveUnate));
 
@@ -1339,7 +778,6 @@ PinGraph Timer::export_levelized_pin_deps() const {
       auto itTap = _rct.tap2idx.find(tap);
       int t = (itTap == _rct.tap2idx.end()) ? -1 : itTap->second;
 
-      // you can put these into level 0 net edges or a separate list
       G.net_src.emplace_back(u);
       G.net_dst.emplace_back(v);
       G.net_tap_idx.emplace_back(t);

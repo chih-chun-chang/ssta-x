@@ -28,8 +28,8 @@ struct RctCUDA
   int* pid;
   float* pres;
   // timing
-  float Mc; // Metal Capacitance Scalar
-  float Mr; // Metal Resistance Scalar 
+  float Mc; 
+  float Mr; 
 
   float* load;
   float* delay;

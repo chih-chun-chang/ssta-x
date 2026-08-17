@@ -1,15 +1,6 @@
 #pragma once
 
 #include <array>
-//#include <string>
-//#include <vector>
-//#include <memory>
-//#include <fstream>
-//#include <sstream>
-//#include <iostream>
-//#include <filesystem>
-//#include <unordered_map>
-
 #include <ssta/utility/utility.hpp>
 
 namespace cell {
@@ -93,43 +84,6 @@ TimingSense parseTimingSense(const std::string& senseStr);
 EdgeType parseEdgeType(const std::string& edgeTypeStr);
 template <std::size_t N>
 void parseFloats(std::array<float, N>& arr, std::istringstream& stream);
-
-/*
-class ParserCellLib
-{
-friend class ParserNetList;
-friend class Engine;
-public:
-  ParserCellLib(const std::string& filename) : _filename(filename) 
-  {
-    auto start = std::chrono::high_resolution_clock::now();
-    _readCellLibrary();
-    auto stop = std::chrono::high_resolution_clock::now();
-    std::cout << "ParserCellLib Time: "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count()
-              << " ms" << std::endl;        
-  }
-
-  void verify();
-
-private:
-  std::string _filename;
-  std::vector<std::shared_ptr<P_CELL>> _p_cell;
-  std::unordered_map<std::string, std::shared_ptr<P_CELL>> _p_cell_map;
-  float _pMetal0ResScaleFactor;
-  float _pMetal0CapScaleFactor;
-  float _pMetal3ResScaleFactor;
-  float _pMetal3CapScaleFactor;
-  
-  void _readCellLibrary();
-  //void _createMap();
-  
-  static TimingSense _parseTimingSense(const std::string& senseStr);
-  static EdgeType _parseEdgeType(const std::string& edgeTypeStr);
-  template <std::size_t N>
-  static void _parseFloats(std::array<float, N>& arr, std::istringstream& stream);
-};
-*/
 
 
 };  // end of namespace  -----------------------------------------------------------------------

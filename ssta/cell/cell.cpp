@@ -55,8 +55,6 @@ Celllib read_celllib(const std::filesystem::path& path) {
         celllib.lib[currentCellName]->iPinNames.emplace_back(pinName);
         float fallCap, riseCap;
         iss >> fallCap >> riseCap;
-        //celllib.lib[currentCellName]->iPinFallCap.emplace_back(fallCap);
-        //celllib.lib[currentCellName]->iPinRiseCap.emplace_back(riseCap);
         celllib.lib[currentCellName]->iPinFallCap[pinName] = fallCap;
         celllib.lib[currentCellName]->iPinRiseCap[pinName] = riseCap;
       }
@@ -65,8 +63,6 @@ Celllib read_celllib(const std::filesystem::path& path) {
         celllib.lib[currentCellName]->clkPinName = pinName;
         float fallCap, riseCap;
         iss >> fallCap >> riseCap;
-        //celllib.lib[currentCellName]->clkPinFallCap = fallCap;
-        //celllib.lib[currentCellName]->clkPinRiseCap = riseCap;
         celllib.lib[currentCellName]->iPinFallCap[pinName] = fallCap;
         celllib.lib[currentCellName]->iPinRiseCap[pinName] = riseCap;
       }

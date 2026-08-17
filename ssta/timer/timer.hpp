@@ -36,7 +36,6 @@ struct Rct {
 };
 
 struct Timing {
-  //std::vector<int> cell_ptr;
   std::vector<int> cell_hasclk;
   std::vector<int> cell_type;
   std::vector<int> cell_level_ptr;
@@ -242,10 +241,6 @@ class Timer {
 
   private:
   
-    // input
-    //std::filesystem::path _vlog;
-    //std::filesystem::path _spef;
-
     // circuit
     std::optional<ohm_t> _resistance_unit;
     std::optional<farad_t> _capacitance_unit;

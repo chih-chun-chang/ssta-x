@@ -1,9 +1,3 @@
-// SSTA-X command-line driver.
-//
-// Runs GPU-accelerated first-order block-based statistical static timing
-// analysis on a design described by a Liberty library, a Verilog netlist,
-// a SPEF parasitics file, and a TAU-contest timing assertion file.
-
 #include <ssta/timer/timer.hpp>
 
 #include <iostream>
@@ -82,11 +76,9 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  // A design directory such as benchmark/tau2015/c17 holds c17.v, c17.spef and
-  // c17.timing, so the three paths can be derived from the directory name.
   if (!design.empty()) {
     std::filesystem::path dir(design);
-    if (dir.filename().empty()) {  // tolerate a trailing slash
+    if (dir.filename().empty()) {h
       dir = dir.parent_path();
     }
     const std::string name = dir.filename().string();

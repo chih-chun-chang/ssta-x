@@ -12,7 +12,6 @@ __global__ void addWireParamsForward(
 {  
   int tid     = blockIdx.x*blockDim.x + threadIdx.x;
   int warp_id  = tid >> 5;
-  //int lane_id  = tid & 31;
   int lane_id = threadIdx.x & 31;
   if (warp_id >= num_pins) return;
 
@@ -23,7 +22,6 @@ __global__ void addWireParamsForward(
   float at, in, in0;
   int port_id;
   int nipin_beg;
-  //int nipin_end;
   if (level == -1) { // input
     pin_idx  =  warp_id;
     at  = timing.ipin_timing_data_at[pin_idx*32 + lane_id];
@@ -31,7 +29,6 @@ __global__ void addWireParamsForward(
     in0 = timing.ipin_timing_data_slew[pin_idx*32 + 8*mode];
     port_id  = timing.wp[pin_idx];
     nipin_beg = timing.nipin_ptr[pin_idx];
-    //nipin_end = timing.nipin_ptr[pin_idx+1];
   } 
   else {
     int level_ptr = timing.cell_level_ptr[level];
@@ -43,7 +40,6 @@ __global__ void addWireParamsForward(
     in0 = timing.opin_timing_data_slew[pin_idx*32 + 8*mode];
     port_id  = timing.wp[pin_idx+num_inputs];
     nipin_beg = timing.nipin_ptr[start_ipin + warp_id];
-    //nipin_end = timing.nipin_ptr[start_ipin + warp_id + 1];
   }
 
   // Figure out its wire‐port and taps  
@@ -84,8 +80,6 @@ __global__ void addWireParamsForward(
     }
 
     int nipin_idx = timing.nipin[nipin_beg+ i];
-    //if (lane_id == 0 && level == 1)
-    //  printf("f level:%d nipin_idx:%d nipin_beg:%d i:%d\n", level, nipin_idx, nipin_beg, i);
     timing.ipin_timing_data_at[nipin_idx*32 + lane_id] = out_at;
     timing.ipin_timing_data_slew[nipin_idx*32 + lane_id] = out_slew;
   }
@@ -93,7 +87,6 @@ __global__ void addWireParamsForward(
 } // addWireParamsForward
 
 
-// problem: multiple outputs, gate_idx overflow
 __global__ void addWireParamsBackward(
   TimingCUDA timing, RctCUDA rct, int num_inputs, int start_idx, int num_gates, int level) 
 {  
@@ -151,14 +144,10 @@ __global__ void addWireParamsBackward(
 
     }
     rat = cur_rat[lane_id];
-    //if (isLate) rat = -rat;
     timing.ipin_timing_data_rat[gate_idx*32 + lane_id] = rat;
   } 
   else {
-    //int cell_ptr  = timing.cell_level_ptr[level] + gate_idx;
     int cell_ptr = timing.map_to_forward[timing.cell_blevel_ptr[level] + gate_idx];
-    //
-    //int cell_type = timing.cell_type[cell_ptr];
     int has_clk   = timing.cell_hasclk[cell_ptr];
     if (has_clk) return;
 
@@ -206,10 +195,7 @@ __global__ void addWireParamsBackward(
         }
       }
       rat = cur_rat[lane_id];
-      
       timing.opin_timing_data_rat[pin_idx*32 + lane_id] = rat;
-      //if (lane_id == 0 && level == 0 && gate_idx == 0) 
-      //  printf("rat: %e, has_clk: %d\n", rat, has_clk);
     }
   }
 } // addWireParamsBackward
@@ -217,11 +203,9 @@ __global__ void addWireParamsBackward(
 
 
 __device__ inline float reduce_sum_8_lanes(unsigned mask, float val) {
-  // Mask ensures synchronization and participation only within the item's lanes
   val += __shfl_down_sync(mask, val, 4); // Lanes 0..3 get sum from 4..7 added
   val += __shfl_down_sync(mask, val, 2); // Lanes 0,1 get sum from 2,3 added
   val += __shfl_down_sync(mask, val, 1); // Lane 0 gets sum from 1 added
-  // The final sum resides in the subgroup's root lane (lowest active lane ID in mask)
   return val;
 }
 
@@ -243,8 +227,6 @@ __global__ void getTDataSense(
   __shared__ float sh_sl_A[MAX_WARPS_PER_BLOCK * 32];
   __shared__ float sh_sl_B[MAX_WARPS_PER_BLOCK * 32];
 
-  //int level_ptr = timing.cell_level_ptr[level];
-  //int cell_ptr  = level_ptr + gate_idx;
   int cell_ptr;
   if (dir != 0) { // backward
     cell_ptr = timing.map_to_forward[timing.cell_blevel_ptr[level] + gate_idx];
@@ -266,7 +248,6 @@ __global__ void getTDataSense(
   int ipint_st = timing.ipint_ptr[cell_ptr];
 
   int warp_id = threadIdx.x >> 5;
-  //if (warp_id >= numop) return; DEADLOCK ISSUE
   bool active = (warp_id < numop);
   unsigned mask = __ballot_sync(0xFFFFFFFF, active);
   int lane_id = threadIdx.x & 31;
@@ -275,11 +256,6 @@ __global__ void getTDataSense(
   if (active) {
   
   if (has_clk) {
-    /*
-    Timing_Data* tData = &cell->coTiming[instance->opin[i]->pinid];
-    Node_Timing_Data jIn;
-    _getDataSense(&jIn, &instance->cpin->tData, tData->sense, FORWARD);
-    */
     int cell_idx = timing.tcell_timing_ptr[cell_type];
     cell::TimingSense pinsense = timing.tcell_timing_sense[cell_idx];
     int ipin = timing.ipin[ipin_st];
@@ -328,24 +304,19 @@ __global__ void getTDataSense(
           p_at_A[lane_id] = -p_at_A[lane_id];
           p_sl_A[lane_id] = -p_sl_A[lane_id];
         }
-        //__syncthreads();
         __syncwarp(mask);
         at   = sh_at_A[sh_idx];
         slew = sh_sl_A[sh_idx];
       }
 
-      //int timing_ptr = (ipin_st * opin_st * 32) + (warp_id * numop * 32) + lane_id;
       int timing_ptr = ipint_st * 32 + (warp_id * numip * 32) + lane_id;
       timing.ipint_timing_data_at[timing_ptr]   = at;
       timing.ipint_timing_data_slew[timing_ptr] = slew;
     }
     else { // backward
-      //do nothing actually
     } 
   } // clk cell end
   else { 
-    // Timing_Data* tData = &cell->ioTiming[instance->ipin[j]->pinid][instance->opin[i]->pinid];
-    // _getTDataSense(&jIn, &instance->ipin[j]->tData, tData->sense, FORWARD);
     int cell_idx = timing.cell_arch_ptr[cell_type];
     for (int i = 0; i < numip; ++i) {
       int ipin = timing.ipin[ipin_st + i];
@@ -462,8 +433,6 @@ __global__ void addDelayParam(
   int gate_idx = blockIdx.x;
   if (gate_idx >= num_gates) return;
 
-  //int level_ptr = timing.cell_level_ptr[level];
-  //int cell_ptr  = level_ptr + gate_idx;
   int cell_ptr;
   if (dir != 0) { // backward
     cell_ptr = timing.map_to_forward[timing.cell_blevel_ptr[level] + gate_idx];
@@ -535,32 +504,14 @@ __global__ void addDelayParam(
       timing.ipint_timing_data_slew [timing_ptr] = so;
     }
     else {
-      // [CLK, D, RN]
-      //1. get the rat of D pin // the second pin -> should be all zeros (don't need to get)
-      //2. get the at of C pin  // the first pin
-
-      // 1. get the slew of cpin (ipin idx 0)
-      // 2. get the slew of ipin (ipin idx 1,2,3....)
-      // 2.1 check slew store at ipin (it shall be)
       int ipin = timing.ipin[ipin_st];
-
       int timing_ptr = ipin * 32 + (warp_id * numip * 32) + lane_id; // ck
       float sck = timing.ipin_timing_data_slew[timing_ptr];
       float at = timing.ipin_timing_data_at[timing_ptr];
 
-      //if (level == 0 && gate_idx == 0 && lane_id == 0) 
-      //  printf("clk cell: at: %e, sck: %e, timing_ptr: %d %d\n", at, sck, timing_ptr, ipin);
-      //if (level == 0 && gate_idx == 0 && lane_id == 8) 
-      //  printf("clk cell: at: %e, sck: %e, timing_ptr: %d %d\n", at, sck, timing_ptr, ipin);
-      //if (level == 0 && gate_idx == 0 && lane_id == 16) 
-      //  printf("clk cell: at: %e, sck: %e, timing_ptr: %d %d\n", at, sck, timing_ptr, ipin);
-      //if (level == 0 && gate_idx == 0 && lane_id == 24) 
-      //  printf("clk cell: at: %e, sck: %e, timing_ptr: %d %d\n", at, sck, timing_ptr, ipin);
-      
       for (int i = 1; i < numip; ++i) { // one warp per opin -> one warp has to iterate all ipins
         float sin = timing.ipin_timing_data_slew[timing_ptr + i * 32];
         int cell_idx = (timing.tcell_constraint_ptr[cell_type] + i - 1)*6;
-        // setup and hold of the fall is zero in this lib
         // type = 0 : 0-7  fall early  (hold fall) sck: rise late
         // type = 1 : 8-15 fall late   (setup fall) sck: rise early
         // type = 2 : 16-23 rise early (hold rise) sck: rise late
@@ -627,19 +578,7 @@ __global__ void addDelayParam(
             
         }
         __syncwarp();
-        
         timing.ipin_timing_data_rat[timing_ptr + i * 32] = out;
-        //if (level == 0 && gate_idx == 0 && lane_id == 0) printf("%e\n", clockTP);
-        //if (level == 0 && gate_idx == 0 && lane_id == 0)   
-        //  printf("lane_id: %d, out: %e, d0: %e, d1: %e, d2: %e, sck: %e, sin: %e, timing_ptr: %d\n", lane_id, out, d0, d1, d2, sck, sin, timing_ptr+i*32);
-        //if (level == 0 && gate_idx == 0 && lane_id == 8)   
-        //  printf("lane_id: %d, out: %e, d0: %e, d1: %e, d2: %e, sck: %e, sin: %e, timing_ptr: %d\n", lane_id, out, d0, d1, d2, sck, sin, timing_ptr+i*32);
-        //if (level == 0 && gate_idx == 0 && lane_id == 16)   
-        //  printf("lane_id: %d, out: %e, d0: %e, d1: %e, d2: %e, sck: %e, sin: %e, timing_ptr: %d\n", lane_id, out, d0, d1, d2, sck, sin, timing_ptr+i*32);
-        //if (level == 0 && gate_idx == 0 && lane_id == 24)   
-        //  printf("lane_id: %d, out: %e, d0: %e, d1: %e, d2: %e, sck: %e, sin: %e, timing_ptr: %d\n", lane_id, out, d0, d1, d2, sck, sin, timing_ptr+i*32);
-        
-        //timing.ipin_timing_data_rat[timing_ptr + i * 32] = out;
       } // for ipin
     }
   } // clk cell
@@ -657,7 +596,6 @@ __global__ void addDelayParam(
       float* dep = &timing.cell_arch_data_delay[cell_idx + warp_id*numip*18 + i*18];
       float* slp = &timing.cell_arch_data_slew[cell_idx + warp_id*numip*18 + i*18];
     
-      //int base = (lane_id >> 4) * 9;
       int base = (type/2)*9;
       float d0 = dep[base+0], d1 = dep[base+1], d2 = dep[base+2];
       float s0 = slp[base+0], s1 = slp[base+1], s2 = slp[base+2];
@@ -689,8 +627,6 @@ __global__ void addDelayParam(
       else {
         float rat = timing.opin_timing_data_rat[out_p*32 + lane_id];
         timing.ipint_timing_data_rat[timing_ptr] = rat - p;
-        //if (lane_id == 0) 
-        //  printf("non clk cell: gate_idx:%d opin_idx:%d rat:%e\n", gate_idx, warp_id, rat-p);
       }
     }
   }
@@ -836,8 +772,6 @@ __global__ void Max(
   }
 
   // 3) Initialize accumulation with first input pin
-  //int in0  = timing.ipin[ipin_st];
-  //int timing_ptr = (ipin_st * opin_st * 32) + (warp_id * numop * 32) + lane_id;
   int timing_ptr = ipint_st * 32 + (warp_id * numip * 32) + lane_id;
   float at0 = timing.ipint_timing_data_at[timing_ptr];
   float sl0 = timing.ipint_timing_data_slew[timing_ptr];
@@ -851,10 +785,7 @@ __global__ void Max(
 
 
   // 4) Merge each additional input via deterministic max
-  //for (int j = ipin_st + 1; j < ipin_en; ++j) {
   for (int j = 1; j < numip; ++j) { 
-    //int inp  = timing.ipin[j];
-    //timing_ptr = (ipin_st * opin_st * 32) + (warp_id * numop * 32) + j * 32 + lane_id;
     timing_ptr = ipint_st * 32 + (warp_id * numip * 32) + j * 32 + lane_id;
     float atj = timing.ipint_timing_data_at[timing_ptr];
     float slj = timing.ipint_timing_data_slew[timing_ptr];
@@ -888,9 +819,6 @@ __global__ void MaxR(
   int gate_idx = blockIdx.x;
   if (gate_idx >= num_gates) return;
 
-
-  //int level_ptr = timing.cell_level_ptr[level];
-  //int cell_ptr  = level_ptr + gate_idx;
   int cell_ptr = timing.map_to_forward[timing.cell_blevel_ptr[level] + gate_idx];
   int has_clk   = timing.cell_hasclk[cell_ptr];
 
@@ -901,7 +829,6 @@ __global__ void MaxR(
   int opin_st = timing.opin_ptr[cell_ptr];
   int opin_en = timing.opin_ptr[cell_ptr + 1];
   int numop = opin_en - opin_st;
-  //int out_p = timing.opin[opin_st];
   int ipint_st = timing.ipint_ptr[cell_ptr];
 
   // one warp per ipin and iterate all output pins
@@ -922,7 +849,6 @@ __global__ void MaxR(
   }
 
   // 3) Initialize accumulation with first output pin
-  
   int timing_ptr = ipint_st * 32 + (warp_id * 32) + lane_id;
   float rat0 = timing.ipint_timing_data_rat[timing_ptr];
 
@@ -951,155 +877,13 @@ __global__ void MaxR(
 }
 
 
-/*
-// Compute setup & hold timing (32-entry per pin: 4 modes × 8 sensitivities)
-__global__ void computeSetupHold(
-    const TimingCUDA timing, 
-    int num_pins)
-{
-    int tid    = blockIdx.x * blockDim.x + threadIdx.x;
-    int warpId = tid >> 5;    // one warp (32 threads) per pin
-    int laneId = tid & 31;
-    if (warpId >= num_pins) return;
-
-    // mode 0..3 and sensitivity index 0..7
-    int mode = laneId >> 3;
-    int sens = laneId & 7;
-
-    // load cell-level dep parameters (3 floats per pin)
-    float d0 = timing.setup_hold_dep[warpId*3 + 0];
-    float d1 = timing.setup_hold_dep[warpId*3 + 1];
-    float d2 = timing.setup_hold_dep[warpId*3 + 2];
-
-    // load sck and sin arrays (8 floats each per pin)
-    float sck = timing.setup_hold_sck [warpId*8 + sens];
-    float sin = timing.setup_hold_sin [warpId*8 + sens];
-
-    float outv;
-    if (sens == 0) {
-        // nominal
-        outv = d0 + d1 * sck + d2 * sin;
-    } else if (sens <= 6) {
-        // sensitivities 1..6
-        outv = d1 * sck + d2 * sin;
-    } else {
-        // random component (sens == 7)
-        outv = sqrtf(sck*sck + sin*sin);
-    }
-
-    // store into 32-entry output: index = pin*32 + mode*8 + sens
-    int out_idx = warpId*32 + mode*8 + sens;
-    timing.setup_hold_out[out_idx] = outv;
-}
-*/
-
-
-// -------------------------------------------------------------------------
-
-// [ssta-bench-tuning] addWireParamsBackwardMG
-template <int GPB>
-__global__ void addWireParamsBackwardMG(
-  TimingCUDA timing, RctCUDA rct, int num_inputs, int start_idx,
-  int num_gates, int level)
-{
-  __shared__ float cur_rat_sh [GPB * 32];
-  __shared__ float next_rat_sh[GPB * 32];
-
-  const int warp_in_block = threadIdx.x >> 5;
-  const int gate_idx      = blockIdx.x * GPB + warp_in_block;
-  if (gate_idx >= num_gates) return;
-
-  float* cur_rat  = &cur_rat_sh [warp_in_block * 32];
-  float* next_rat = &next_rat_sh[warp_in_block * 32];
-
-  const int lane_id = threadIdx.x & 31;
-  const int mode    = lane_id >> 3;
-  const int sens    = lane_id & 7;
-
-  int pin_idx;
-  int port_id;
-  int nipin_beg;
-  if (level == -1) {
-    pin_idx   = gate_idx;
-    port_id   = timing.wp[pin_idx];
-    nipin_beg = timing.nipin_ptr[pin_idx];
-    int tap_st   = rct.taps_st[port_id];
-    int tap_en   = rct.taps_st[port_id + 1];
-    int num_taps = tap_en - tap_st;
-    bool isLate = ((mode & 1) == 1);
-    float rat;
-    for (int i = 0; i < num_taps; ++i) {
-      int tap = tap_st + i;
-      int nipin_idx = timing.nipin[nipin_beg + i];
-      rat = timing.ipin_timing_data_rat[nipin_idx * 32 + lane_id];
-      if (sens == 0) rat -= rct.tapDelay[4 * tap + (mode / 2)];
-      if (sens == 6) rat -= rct.tapDelay[4 * tap + (mode / 2) + 2];
-      if (i == 0) { cur_rat[lane_id] = rat; __syncwarp(); }
-      else {
-        next_rat[lane_id] = rat; __syncwarp();
-        if (isLate) { cur_rat[lane_id] = -cur_rat[lane_id]; next_rat[lane_id] = -next_rat[lane_id]; }
-        __syncwarp();
-        max_kernel(cur_rat, cur_rat, next_rat); __syncwarp();
-        if (isLate) cur_rat[lane_id] = -cur_rat[lane_id];
-      }
-    }
-    rat = cur_rat[lane_id];
-    timing.ipin_timing_data_rat[gate_idx * 32 + lane_id] = rat;
-  } else {
-    int cell_ptr = timing.map_to_forward[timing.cell_blevel_ptr[level] + gate_idx];
-    int has_clk  = timing.cell_hasclk[cell_ptr];
-    if (has_clk) return;
-    int opin_st = timing.opin_ptr[cell_ptr];
-    int opin_en = timing.opin_ptr[cell_ptr + 1];
-    int numop   = opin_en - opin_st;
-    int bnipin_ptr_each_gate = timing.bnipin_ptr_each_gate[start_idx + gate_idx];
-    for (int i = 0; i < numop; ++i) {
-      pin_idx   = timing.opin[opin_st + i];
-      port_id   = timing.wp[pin_idx + num_inputs];
-      nipin_beg = timing.bnipin_ptr[bnipin_ptr_each_gate + i];
-      int tap_st   = rct.taps_st[port_id];
-      int tap_en   = rct.taps_st[port_id + 1];
-      int num_taps = tap_en - tap_st;
-      bool isLate = ((mode & 1) == 1);
-      float rat;
-      for (int j = 0; j < num_taps; ++j) {
-        int tap = tap_st + j;
-        int nipin_idx = timing.nipin[nipin_beg + j];
-        rat = timing.ipin_timing_data_rat[nipin_idx * 32 + lane_id];
-        if (sens == 0) rat -= rct.tapDelay[4 * tap + (mode / 2)];
-        if (sens == 6) rat -= rct.tapDelay[4 * tap + (mode / 2) + 2];
-        if (j == 0) { cur_rat[lane_id] = rat; __syncwarp(); }
-        else {
-          next_rat[lane_id] = rat; __syncwarp();
-          if (isLate) { cur_rat[lane_id] = -cur_rat[lane_id]; next_rat[lane_id] = -next_rat[lane_id]; }
-          __syncwarp();
-          max_kernel(cur_rat, cur_rat, next_rat); __syncwarp();
-          if (isLate) cur_rat[lane_id] = -cur_rat[lane_id];
-        }
-      }
-      rat = cur_rat[lane_id];
-      timing.opin_timing_data_rat[pin_idx * 32 + lane_id] = rat;
-    }
-  }
-}
-template __global__ void addWireParamsBackwardMG<2> (TimingCUDA, RctCUDA, int, int, int, int);
-template __global__ void addWireParamsBackwardMG<4> (TimingCUDA, RctCUDA, int, int, int, int);
-template __global__ void addWireParamsBackwardMG<8> (TimingCUDA, RctCUDA, int, int, int, int);
-template __global__ void addWireParamsBackwardMG<16>(TimingCUDA, RctCUDA, int, int, int, int);
-
 
 void _addWireParamsForward(TimingCUDA& timing_cuda, RctCUDA& rct, int num_inputs, int start_idx, int num_pins, int level) {
   constexpr int num_threads = BLOCK_FWD;
   int warp_per_block = num_threads / 32;
   int num_blocks = (num_pins + warp_per_block - 1) / warp_per_block;
-  //if (level == 13) printf("num_threads %d, num_blocks %d, num_pins %d, warp_per_block %d\n", num_threads, num_blocks, num_pins, warp_per_block);
   addWireParamsForward<<<num_blocks, num_threads>>>(timing_cuda, rct, num_inputs, start_idx, num_pins, level);
   CUDA_CHECK(cudaGetLastError());
-  //cudaError_t err = cudaGetLastError();
-  //if (err != cudaSuccess) {
-  //  std::cerr << "Kernel launch failed: " << cudaGetErrorString(err) << std::endl;
-  //}
-  //cudaDeviceSynchronize(); // Also prints deferred errors
 }
 
 
@@ -1123,7 +907,6 @@ void _getTDataSense(TimingCUDA& timing_cuda, int num_inputs, int num_gates, int 
   int num_blocks = num_gates;
   getTDataSense<<<num_blocks, num_threads>>>(timing_cuda, num_inputs, num_gates, level, dir);
   CUDA_CHECK(cudaGetLastError());
-  //cudaDeviceSynchronize();
 }
 
 void _addDelayParam(TimingCUDA& timing_cuda, RctCUDA& rct, int num_inputs, int num_gates, int level, int dir, float clockTP) {
@@ -1131,7 +914,6 @@ void _addDelayParam(TimingCUDA& timing_cuda, RctCUDA& rct, int num_inputs, int n
   int num_blocks = num_gates;
   addDelayParam<<<num_blocks, num_threads>>>(timing_cuda, rct, num_inputs, num_gates, level, dir, clockTP);
   CUDA_CHECK(cudaGetLastError());
-  //cudaDeviceSynchronize();
 }
 
 void _max(TimingCUDA& timing_cuda, int num_inputs, int num_gates, int level) {
@@ -1139,7 +921,6 @@ void _max(TimingCUDA& timing_cuda, int num_inputs, int num_gates, int level) {
   int num_blocks = num_gates;
   Max<<<num_blocks, num_threads>>>(timing_cuda, num_inputs, num_gates, level);
   CUDA_CHECK(cudaGetLastError());
-  //cudaDeviceSynchronize();
 }
 
 void _maxR(TimingCUDA& timing_cuda, int num_inputs, int num_gates, int level) {
@@ -1147,7 +928,4 @@ void _maxR(TimingCUDA& timing_cuda, int num_inputs, int num_gates, int level) {
   int num_blocks = num_gates;
   MaxR<<<num_blocks, num_threads>>>(timing_cuda, num_inputs, num_gates, level);
   CUDA_CHECK(cudaGetLastError());
-  //cudaDeviceSynchronize();
 }
-
-// [ssta-bench-tuning] applied

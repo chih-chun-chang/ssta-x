@@ -7,7 +7,6 @@
 
 struct TimingCUDA {
   // cell
-  //int* cell_ptr;
   int* cell_type;
   int* cell_hasclk;
   int* cell_level_ptr;
@@ -17,7 +16,6 @@ struct TimingCUDA {
   cell::TimingSense* tcell_timing_sense;
   float* tcell_timing_data_slew;  // 18
   float* tcell_timing_data_delay; //  18
-  //cell::EdgeType* tcell_constraint_setup_type;
   float* tcell_constraint_setup_data; // 6
   cell::EdgeType* tcell_constraint_hold_type;
   float* tcell_constraint_hold_data; // 6
@@ -31,7 +29,6 @@ struct TimingCUDA {
   // node
   int* ipin;
   int* ipin_ptr;
-  //int* ipin_level_ptr;
   float* ipin_timing_data_slew; // 32
   float* ipin_timing_data_at; // 32
   float* ipin_timing_data_rat; // 32
