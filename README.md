@@ -35,18 +35,6 @@ timing assertions, then runs three stages:
    an independent random term, evaluated across four timing modes
    (early/late × rise/fall).
 
-Three design choices drive the speedup:
-
-- **Topology-aware memory layout.** Timing data is reordered to follow the
-  levelized graph structure, so threads in a level read contiguous memory.
-  Per-level arrays are aligned to 32-element boundaries.
-- **Latency-optimized data access.** Arrival time, required time, and slew are
-  vectorized with `float4`, fetching nominal and sensitivity coefficients in a
-  single instruction.
-- **Warp-efficient statistical operations.** The statistical max (Clark's
-  method) and delay interpolation use intra-warp primitives such as
-  `__shfl_sync`, cutting redundant memory traffic during propagation.
-
 ## Requirements
 
 - CUDA Toolkit 11.0 or newer (developed against 12.6)
