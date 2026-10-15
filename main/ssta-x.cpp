@@ -78,7 +78,7 @@ int main(int argc, char* argv[]) {
 
   if (!design.empty()) {
     std::filesystem::path dir(design);
-    if (dir.filename().empty()) {h
+    if (dir.filename().empty()) {
       dir = dir.parent_path();
     }
     const std::string name = dir.filename().string();

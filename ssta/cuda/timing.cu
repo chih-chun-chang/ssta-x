@@ -878,6 +878,98 @@ __global__ void MaxR(
 
 
 
+// [ssta-bench-tuning] addWireParamsBackwardMG
+template <int GPB>
+__global__ void addWireParamsBackwardMG(
+  TimingCUDA timing, RctCUDA rct, int num_inputs, int start_idx,
+  int num_gates, int level)
+{
+  __shared__ float cur_rat_sh [GPB * 32];
+  __shared__ float next_rat_sh[GPB * 32];
+
+  const int warp_in_block = threadIdx.x >> 5;
+  const int gate_idx      = blockIdx.x * GPB + warp_in_block;
+  if (gate_idx >= num_gates) return;
+
+  float* cur_rat  = &cur_rat_sh [warp_in_block * 32];
+  float* next_rat = &next_rat_sh[warp_in_block * 32];
+
+  const int lane_id = threadIdx.x & 31;
+  const int mode    = lane_id >> 3;
+  const int sens    = lane_id & 7;
+
+  int pin_idx;
+  int port_id;
+  int nipin_beg;
+  if (level == -1) {
+    pin_idx   = gate_idx;
+    port_id   = timing.wp[pin_idx];
+    nipin_beg = timing.nipin_ptr[pin_idx];
+    int tap_st   = rct.taps_st[port_id];
+    int tap_en   = rct.taps_st[port_id + 1];
+    int num_taps = tap_en - tap_st;
+    bool isLate = ((mode & 1) == 1);
+    float rat;
+    for (int i = 0; i < num_taps; ++i) {
+      int tap = tap_st + i;
+      int nipin_idx = timing.nipin[nipin_beg + i];
+      rat = timing.ipin_timing_data_rat[nipin_idx * 32 + lane_id];
+      if (sens == 0) rat -= rct.tapDelay[4 * tap + (mode / 2)];
+      if (sens == 6) rat -= rct.tapDelay[4 * tap + (mode / 2) + 2];
+      if (i == 0) { cur_rat[lane_id] = rat; __syncwarp(); }
+      else {
+        next_rat[lane_id] = rat; __syncwarp();
+        if (isLate) { cur_rat[lane_id] = -cur_rat[lane_id]; next_rat[lane_id] = -next_rat[lane_id]; }
+        __syncwarp();
+        max_kernel(cur_rat, cur_rat, next_rat); __syncwarp();
+        if (isLate) cur_rat[lane_id] = -cur_rat[lane_id];
+      }
+    }
+    rat = cur_rat[lane_id];
+    timing.ipin_timing_data_rat[gate_idx * 32 + lane_id] = rat;
+  } else {
+    int cell_ptr = timing.map_to_forward[timing.cell_blevel_ptr[level] + gate_idx];
+    int has_clk  = timing.cell_hasclk[cell_ptr];
+    if (has_clk) return;
+    int opin_st = timing.opin_ptr[cell_ptr];
+    int opin_en = timing.opin_ptr[cell_ptr + 1];
+    int numop   = opin_en - opin_st;
+    int bnipin_ptr_each_gate = timing.bnipin_ptr_each_gate[start_idx + gate_idx];
+    for (int i = 0; i < numop; ++i) {
+      pin_idx   = timing.opin[opin_st + i];
+      port_id   = timing.wp[pin_idx + num_inputs];
+      nipin_beg = timing.bnipin_ptr[bnipin_ptr_each_gate + i];
+      int tap_st   = rct.taps_st[port_id];
+      int tap_en   = rct.taps_st[port_id + 1];
+      int num_taps = tap_en - tap_st;
+      bool isLate = ((mode & 1) == 1);
+      float rat;
+      for (int j = 0; j < num_taps; ++j) {
+        int tap = tap_st + j;
+        int nipin_idx = timing.nipin[nipin_beg + j];
+        rat = timing.ipin_timing_data_rat[nipin_idx * 32 + lane_id];
+        if (sens == 0) rat -= rct.tapDelay[4 * tap + (mode / 2)];
+        if (sens == 6) rat -= rct.tapDelay[4 * tap + (mode / 2) + 2];
+        if (j == 0) { cur_rat[lane_id] = rat; __syncwarp(); }
+        else {
+          next_rat[lane_id] = rat; __syncwarp();
+          if (isLate) { cur_rat[lane_id] = -cur_rat[lane_id]; next_rat[lane_id] = -next_rat[lane_id]; }
+          __syncwarp();
+          max_kernel(cur_rat, cur_rat, next_rat); __syncwarp();
+          if (isLate) cur_rat[lane_id] = -cur_rat[lane_id];
+        }
+      }
+      rat = cur_rat[lane_id];
+      timing.opin_timing_data_rat[pin_idx * 32 + lane_id] = rat;
+    }
+  }
+}
+template __global__ void addWireParamsBackwardMG<2> (TimingCUDA, RctCUDA, int, int, int, int);
+template __global__ void addWireParamsBackwardMG<4> (TimingCUDA, RctCUDA, int, int, int, int);
+template __global__ void addWireParamsBackwardMG<8> (TimingCUDA, RctCUDA, int, int, int, int);
+template __global__ void addWireParamsBackwardMG<16>(TimingCUDA, RctCUDA, int, int, int, int);
+
+
 void _addWireParamsForward(TimingCUDA& timing_cuda, RctCUDA& rct, int num_inputs, int start_idx, int num_pins, int level) {
   constexpr int num_threads = BLOCK_FWD;
   int warp_per_block = num_threads / 32;

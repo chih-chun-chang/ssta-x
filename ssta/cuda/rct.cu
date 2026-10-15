@@ -390,104 +390,111 @@ __global__ void compute_rc_timing_block(RctCUDA rct, float Mc, float Mr, int num
 __global__ void compute_rc_timing2(RctCUDA rct, float Mc, float Mr) {
   unsigned int net_id = blockIdx.x * blockDim.x + threadIdx.x;
   unsigned int type_idx = threadIdx.y;
-  if(net_id >= rct.num_nets) return;
-  int nodes_st = rct.nodes_st[net_id]; 
-  int nodes_en = rct.nodes_st[net_id + 1];
-  int taps_st = rct.taps_st[net_id];
-  int taps_en = rct.taps_st[net_id + 1];
+  // no early return: every thread must reach the __syncthreads() below
+  const bool active = net_id < rct.num_nets;
+  int nodes_st = 0, nodes_en = 0, taps_st = 0, taps_en = 0;
+  float outCap = 0.0f;
 
   // type id
   // 0,1 = nominal (f, r)
   // 2,3 = sense (f, r)
-  float mc = 1.0f;
-  float mr = 1.0f;
-  if (type_idx > 1) {
-    mc = Mc;
-    mr = Mr;
-  }
+  if (active) {
+    nodes_st = rct.nodes_st[net_id];
+    nodes_en = rct.nodes_st[net_id + 1];
+    taps_st = rct.taps_st[net_id];
+    taps_en = rct.taps_st[net_id + 1];
 
-  // init
-  float outCap = 0.0f;
-  for (int i = nodes_st; i < nodes_en; ++i) {
-    float cap = mc*rct.caps[i];
-    rct.load[4*i + type_idx] = cap;
-    rct.beta[4*i + type_idx] = cap;
-    outCap += cap;
-  }
-
-  // ipin cap
-  for (int i = taps_st; i < taps_en; ++i) {
-    int tap = rct.taps[i] + nodes_st;
-    float tapCap = rct.tapCaps[2*i + type_idx%2];
-    rct.load[4*tap + type_idx] += tapCap;
-    rct.beta[4*tap + type_idx] += tapCap;
-    outCap += tapCap;
-  }
-
-  
-  // downstream load (nodes_st is port node and its prev = -1)
-  for (int i = nodes_en - 1; i > nodes_st; --i) {
-    int n = rct.orders[i] + nodes_st;
-    int prev = rct.pid[n] + nodes_st;
-    rct.load[4*prev + type_idx] += rct.load[4*n + type_idx];
-  }
-
-  
-  // upstream delay
-  for (int i = nodes_st+1; i < nodes_en; ++i) {
-    int n = rct.orders[i] + nodes_st;
-    int prev = rct.pid[n] + nodes_st;
-    float pres = rct.pres[n];
-    rct.delay[4*n + type_idx] = rct.delay[4*prev + type_idx] + mr*pres*rct.load[4*n + type_idx]; 
-  }
-  
-  
-  // B
-  // multiply delay
-  for (int i = nodes_st; i < nodes_en; ++i) {
-    rct.beta[4*i + type_idx] *= rct.delay[4*i + type_idx];
-  }
-
-  // downstream beta (nodes_st is port node and its prev = -1)
-  for (int i = nodes_en - 1; i > nodes_st; --i) {
-    int n = rct.orders[i] + nodes_st;
-    int prev = rct.pid[n] + nodes_st;
-    rct.beta[4*prev + type_idx] += rct.beta[4*n + type_idx];
-  }
-  
-  // upstream beta
-  for (int i = nodes_st+1; i < nodes_en; ++i) {
-    int n = rct.orders[i] + nodes_st;
-    int prev = rct.pid[n] + nodes_st;
-    float pres = rct.pres[n];
-    rct.slew[4*n + type_idx] = rct.slew[4*prev + type_idx] + mr*pres*rct.beta[4*n + type_idx];
-  }
-
-
-  // for each tap
-  for (int i = taps_st; i < taps_en; ++i) {
-    int tap = rct.taps[i] + nodes_st;
-    float b = rct.slew[4*tap + type_idx];
-    float d = rct.delay[4*tap + type_idx];
-    rct.tapDelay[4*i + type_idx] = d;
-    rct.tapSlew[4*i + type_idx] = sqrtf(2*b - d*d);
+    float mc = 1.0f;
+    float mr = 1.0f;
     if (type_idx > 1) {
+      mc = Mc;
+      mr = Mr;
+    }
+
+    for (int i = nodes_st; i < nodes_en; ++i) {
+      float cap = mc*rct.caps[i];
+      rct.load[4*i + type_idx] = cap;
+      rct.beta[4*i + type_idx] = cap;
+      outCap += cap;
+    }
+
+    // ipin cap
+    for (int i = taps_st; i < taps_en; ++i) {
+      int tap = rct.taps[i] + nodes_st;
+      float tapCap = rct.tapCaps[2*i + type_idx%2];
+      rct.load[4*tap + type_idx] += tapCap;
+      rct.beta[4*tap + type_idx] += tapCap;
+      outCap += tapCap;
+    }
+
+    // downstream load (nodes_st is port node and its prev = -1)
+    for (int i = nodes_en - 1; i > nodes_st; --i) {
+      int n = rct.orders[i] + nodes_st;
+      int prev = rct.pid[n] + nodes_st;
+      rct.load[4*prev + type_idx] += rct.load[4*n + type_idx];
+    }
+
+    // the root (port) starts the delay and beta accumulation at zero
+    if (nodes_en > nodes_st) {
+      int root = rct.orders[nodes_st] + nodes_st;
+      rct.delay[4*root + type_idx] = 0.0f;
+      rct.slew[4*root + type_idx] = 0.0f;
+    }
+
+    // upstream delay
+    for (int i = nodes_st+1; i < nodes_en; ++i) {
+      int n = rct.orders[i] + nodes_st;
+      int prev = rct.pid[n] + nodes_st;
+      float pres = rct.pres[n];
+      rct.delay[4*n + type_idx] = rct.delay[4*prev + type_idx] + mr*pres*rct.load[4*n + type_idx];
+    }
+
+    // B
+    // multiply delay
+    for (int i = nodes_st; i < nodes_en; ++i) {
+      rct.beta[4*i + type_idx] *= rct.delay[4*i + type_idx];
+    }
+
+    // downstream beta (nodes_st is port node and its prev = -1)
+    for (int i = nodes_en - 1; i > nodes_st; --i) {
+      int n = rct.orders[i] + nodes_st;
+      int prev = rct.pid[n] + nodes_st;
+      rct.beta[4*prev + type_idx] += rct.beta[4*n + type_idx];
+    }
+
+    // upstream beta
+    for (int i = nodes_st+1; i < nodes_en; ++i) {
+      int n = rct.orders[i] + nodes_st;
+      int prev = rct.pid[n] + nodes_st;
+      float pres = rct.pres[n];
+      rct.slew[4*n + type_idx] = rct.slew[4*prev + type_idx] + mr*pres*rct.beta[4*n + type_idx];
+    }
+
+    // for each tap
+    for (int i = taps_st; i < taps_en; ++i) {
+      int tap = rct.taps[i] + nodes_st;
+      float b = rct.slew[4*tap + type_idx];
+      float d = rct.delay[4*tap + type_idx];
+      rct.tapDelay[4*i + type_idx] = d;
+      rct.tapSlew[4*i + type_idx] = sqrtf(2*b - d*d);
+    }
+
+    rct.outCap[4*net_id + type_idx] = outCap;
+  }
+
+  // the sensitivity rows (type 2,3) read the nominal rows (type 0,1) written by other warps
+  __syncthreads();
+
+  if (active && type_idx > 1) {
+    for (int i = taps_st; i < taps_en; ++i) {
+      int tap = rct.taps[i] + nodes_st;
       float bn = rct.slew[4*tap + type_idx%2];
       float dn = rct.delay[4*tap + type_idx%2];
-      rct.tapDelay[4*i + type_idx] = (rct.tapDelay[4*i + type_idx] - rct.delay[4*tap + type_idx%2])/3;
+      rct.tapDelay[4*i + type_idx] = (rct.tapDelay[4*i + type_idx] - dn)/3;
       rct.tapSlew[4*i + type_idx] = (rct.tapSlew[4*i + type_idx] - sqrtf(2*bn - dn*dn))/3;
     }
+    rct.outCap[4*net_id + type_idx] = (outCap - rct.outCap[4*net_id + type_idx%2])/3;
   }
-
-  // Outcap
-  rct.outCap[4*net_id + type_idx] = outCap;
-  if (type_idx > 1) {
-    rct.outCap[4*net_id + type_idx] = (outCap - rct.outCap[4*net_id + type_idx%2])/3;
-    rct.outCap[4*net_id + type_idx] = (outCap - rct.outCap[4*net_id + type_idx%2])/3;
-  }  
-
-
-
 }
 // -------------------------------------------------------------------------
 

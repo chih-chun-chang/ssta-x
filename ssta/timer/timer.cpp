@@ -35,6 +35,9 @@ void Timer::_verilog(vlog::Module& module)
     _numopins[gate.name] = cl->lib[gate.cell]->numoPins;
     _gate2cell[gate.name] = gate.cell;
     for(const auto& [c, n] : gate.cellpin2net) {
+      std::string pin = gate.name + ":" + c;
+      if (_pin2cell.find(pin) != _pin2cell.end())
+        throw std::runtime_error("Duplicate pin to cell mapping\n");
       _pin2cell[pin] = gate.cell;
       if (std::find(cl->lib[gate.cell]->iPinNames.begin(), cl->lib[gate.cell]->iPinNames.end(), c) != cl->lib[gate.cell]->iPinNames.end()) {
         _ipin2gate[pin] = gate.name;
