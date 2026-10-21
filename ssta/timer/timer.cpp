@@ -188,6 +188,11 @@ void Timer::_get_arch_timing() {
   for (int i = 0; i < _rct.ports_name.size(); ++i) {
     port_map[_rct.ports_name[i]] = i;
   }
+  // RC net driven by a port or output pin; -1 if it has none (e.g. an unused input)
+  auto port_of = [&](const std::string& pin) {
+    auto it = port_map.find(pin);
+    return it == port_map.end() ? -1 : it->second;
+  };
 
   // convert the used cell lib to vector
   int cell_index = 0;
@@ -301,6 +306,18 @@ void Timer::_get_arch_timing() {
     }
     auto &pins = it->second;        // safe: no unintended insertion
     std::sort(pins.begin(), pins.end());
+    // the kernels index a cell's arc tables by input position: every input must be connected
+    if (!_hasclk[gate]) {
+      const auto& lib_ipins = cl->lib[cell]->iPinNames;
+      bool same = pins.size() == lib_ipins.size();
+      for (size_t i = 0; same && i < pins.size(); ++i) {
+        same = pins[i] == gate + ":" + lib_ipins[i];
+      }
+      if (!same) {
+        throw std::runtime_error("gate " + gate + " (" + cell + "): input pins do not match the "
+                                 "library's (unconnected input?)");
+      }
+    }
     for (const auto& ipin : _gate2ipin[gate]) {
       if (ipin_map.find(ipin) == ipin_map.end()) {
         ipin_map[ipin] = ipin_index++;
@@ -349,7 +366,7 @@ void Timer::_get_arch_timing() {
       _t.ipin.emplace_back(ipin_map[port]);
       _t.ipin_ptr.emplace_back(num_ipin++);
     }
-    _t.wp.emplace_back(port_map[port]);
+    _t.wp.emplace_back(port_of(port));
     for (const auto& taps : _wires[port]) {
       if (ipin_map.find(taps) != ipin_map.end()) {
         _t.nipin.emplace_back(ipin_map[taps]); // this means the next ipin
@@ -409,7 +426,7 @@ void Timer::_get_arch_timing() {
         _t.opin.emplace_back(num_opin++);
         num_of_opins++;
         _t.opin_string.emplace_back(opin);
-        _t.wp.emplace_back(port_map[opin]);
+        _t.wp.emplace_back(port_of(opin));
         backward_nipin_ptr[opin] = num_nipin;
         for (const auto& taps : _wires[opin]) {
           try {

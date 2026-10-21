@@ -86,9 +86,10 @@ TimingCUDA Timer::_copy_timing2gpu() {
   allocateCopyCUDA(timing_cuda.bnipin_ptr_each_gate, _t.bnipin_ptr_each_gate.data(), _t.bnipin_ptr_each_gate.size());
   allocateCopyCUDA(timing_cuda.opin,                  _t.opin.data(),                   _t.opin.size());
   allocateCopyCUDA(timing_cuda.opin_ptr,              _t.opin_ptr.data(),               _t.opin_ptr.size());
-  allocateCUDA(timing_cuda.opin_timing_data_slew,     _t.opin_timing_data_slew.size(), float);
-  allocateCUDA(timing_cuda.opin_timing_data_at,       _t.opin_timing_data_at.size(),   float);
-  allocateCUDA(timing_cuda.opin_timing_data_rat,      _t.opin_timing_data_rat.size(),  float);
+  // zeros, like the ipin arrays: the backward pass does not reach every output pin (clock tree)
+  allocateCopyCUDA(timing_cuda.opin_timing_data_slew, _t.opin_timing_data_slew.data(), _t.opin_timing_data_slew.size());
+  allocateCopyCUDA(timing_cuda.opin_timing_data_at,   _t.opin_timing_data_at.data(),   _t.opin_timing_data_at.size());
+  allocateCopyCUDA(timing_cuda.opin_timing_data_rat,  _t.opin_timing_data_rat.data(),  _t.opin_timing_data_rat.size());
   allocateCUDA(timing_cuda.ipint_timing_data_slew, _t.ipint_timing_data_slew.size(), float);
   allocateCUDA(timing_cuda.ipint_timing_data_at,   _t.ipint_timing_data_at.size(), float);
   allocateCUDA(timing_cuda.ipint_timing_data_rat,   _t.ipint_timing_data_rat.size(), float);
@@ -202,22 +203,7 @@ void Timer::_run_cuda() {
   // PI
   float fprop_ms = 0;
   cudaEventRecord(start);
-
-  _addWireParamsForward(timing_cuda, rct_cuda, _inputs.size(), 0, _inputs.size(), -1);
-
-  int start_idx = _t.ipin_level_ptr[0];
-  int num_pins = _t.ipin_level_ptr[1] - start_idx;
-
-  int nipin_start = 0;
-  nipin_start=_inputs.size();
-  // prop
-  for (const auto& [level, insts] : _forward) {
-    _getTDataSense(timing_cuda, _inputs.size(), insts.size(), level, 0);
-    _addDelayParam(timing_cuda, rct_cuda, _inputs.size(), insts.size(), level, 0, 0);
-    _max(timing_cuda, _inputs.size(), insts.size(), level);
-    _addWireParamsForward(timing_cuda, rct_cuda, _inputs.size(), nipin_start, _t.opin_level_ptr[level+1]-_t.opin_level_ptr[level], level);
-    nipin_start+=insts.size();
-  }
+  _propagate_forward(timing_cuda, rct_cuda);
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&fprop_ms, start, stop);
@@ -228,17 +214,7 @@ void Timer::_run_cuda() {
 
   float bprop_ms = 0;
   cudaEventRecord(start);
-  nipin_start = 0;
-  for (const auto& [level, insts] : _backward) {    
-    _addWireParamsBackward(timing_cuda, rct_cuda, _inputs.size(), nipin_start, insts.size(), level);
-    _getTDataSense(timing_cuda, _inputs.size(), insts.size(), level, 2); // dir == 2 to skip clk instance
-    _addDelayParam(timing_cuda, rct_cuda, _inputs.size(), insts.size(), level, 1, _clockTP);
-    _getTDataSense(timing_cuda, _inputs.size(), insts.size(), level, 1);
-    _maxR(timing_cuda, _inputs.size(), insts.size(), level);
-    nipin_start+=insts.size();
-  }
-  _addWireParamsBackward(timing_cuda, rct_cuda, _inputs.size(), 0, _inputs.size(), -1);
-  
+  _propagate_backward(timing_cuda, rct_cuda);
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&bprop_ms, start, stop);
@@ -293,34 +269,14 @@ TimingResult Timer::run_timed() {
  
   float fprop_ms = 0;
   cudaEventRecord(start);
-  _addWireParamsForward(timing_cuda, rct_cuda, _inputs.size(), 0, _inputs.size(), -1);
-  int start_idx = _t.ipin_level_ptr[0];
-  int num_pins = _t.ipin_level_ptr[1] - start_idx;
-  int nipin_start = 0;
-  nipin_start=_inputs.size();
-  for (const auto& [level, insts] : _forward) {
-    _getTDataSense(timing_cuda, _inputs.size(), insts.size(), level, 0);
-    _addDelayParam(timing_cuda, rct_cuda, _inputs.size(), insts.size(), level, 0, 0);
-    _max(timing_cuda, _inputs.size(), insts.size(), level);
-    _addWireParamsForward(timing_cuda, rct_cuda, _inputs.size(), nipin_start, _t.opin_level_ptr[level+1]-_t.opin_level_ptr[level], level);
-    nipin_start+=insts.size();
-  }
+  _propagate_forward(timing_cuda, rct_cuda);
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&fprop_ms, start, stop);
 
   float bprop_ms = 0;
   cudaEventRecord(start);
-  nipin_start = 0;
-  for (const auto& [level, insts] : _backward) {
-    _addWireParamsBackward(timing_cuda, rct_cuda, _inputs.size(), nipin_start, insts.size(), level);
-    _getTDataSense(timing_cuda, _inputs.size(), insts.size(), level, 2); // dir == 2 to skip clk instance
-    _addDelayParam(timing_cuda, rct_cuda, _inputs.size(), insts.size(), level, 1, _clockTP);
-    _getTDataSense(timing_cuda, _inputs.size(), insts.size(), level, 1);
-    _maxR(timing_cuda, _inputs.size(), insts.size(), level);
-    nipin_start+=insts.size();
-  }
-  _addWireParamsBackward(timing_cuda, rct_cuda, _inputs.size(), 0, _inputs.size(), -1);
+  _propagate_backward(timing_cuda, rct_cuda);
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&bprop_ms, start, stop);
@@ -337,4 +293,98 @@ TimingResult Timer::run_timed() {
   _close_cuda(rct_cuda, timing_cuda);
 
   return {(double)fprop_ms, (double)bprop_ms};
+}
+
+// PI wires, then per level: cell arcs, max over the input pins, output wires
+void Timer::_propagate_forward(TimingCUDA& timing_cuda, RctCUDA& rct_cuda) {
+  _addWireParamsForward(timing_cuda, rct_cuda, _inputs.size(), 0, _inputs.size(), -1);
+  int nipin_start = _inputs.size();  // nipin_ptr has one entry per PI, then one per output pin
+  for (const auto& [level, insts] : _forward) {
+    int num_opins = _t.opin_level_ptr[level+1] - _t.opin_level_ptr[level];
+    _getTDataSense(timing_cuda, _inputs.size(), insts.size(), level, 0);
+    _addDelayParam(timing_cuda, rct_cuda, _inputs.size(), insts.size(), level, 0, 0);
+    _max(timing_cuda, _inputs.size(), insts.size(), level);
+    _addWireParamsForward(timing_cuda, rct_cuda, _inputs.size(), nipin_start, num_opins, level);
+    nipin_start += num_opins;
+  }
+}
+
+// Per level from the outputs: output wires, cell arcs, min/max over the output pins; then PI wires
+void Timer::_propagate_backward(TimingCUDA& timing_cuda, RctCUDA& rct_cuda) {
+  int gate_start = 0;  // bnipin_ptr_each_gate has one entry per gate
+  for (const auto& [level, insts] : _backward) {
+    _addWireParamsBackward(timing_cuda, rct_cuda, _inputs.size(), gate_start, insts.size(), level);
+    _getTDataSense(timing_cuda, _inputs.size(), insts.size(), level, 2); // dir == 2 to skip clk instance
+    _addDelayParam(timing_cuda, rct_cuda, _inputs.size(), insts.size(), level, 1, _clockTP);
+    _getTDataSense(timing_cuda, _inputs.size(), insts.size(), level, 1);
+    _maxR(timing_cuda, _inputs.size(), insts.size(), level);
+    gate_start += insts.size();
+  }
+  _addWireParamsBackward(timing_cuda, rct_cuda, _inputs.size(), 0, _inputs.size(), -1);
+}
+
+// Propagation timed like run_timed(), then the arrival time, slew and (with backward) required
+// arrival time of every pin. Each run recomputes every pin from the PI arrival times and the
+// PO required times, so the runs give the same result.
+PinTiming Timer::run_pin_timing(int runs, bool backward) {
+  _build_connections(20);
+  _get_arch_timing();
+  float Mr = (*_celllib)->metal3ResScaleFactor;
+  float Mc = (*_celllib)->metal3CapScaleFactor;
+
+  RctCUDA rct_cuda = _copy_rct2gpu();
+  TimingCUDA timing_cuda = _copy_timing2gpu();
+  _bfs(rct_cuda);
+  _compute_rc_timing2(rct_cuda, Mc, Mr);
+
+  cudaEvent_t start, stop;
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
+
+  PinTiming result;
+  for (int i = 0; i < runs; ++i) {
+    float fprop_ms = 0;
+    cudaEventRecord(start);
+    _propagate_forward(timing_cuda, rct_cuda);
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&fprop_ms, start, stop);
+    result.forward_ms.push_back(fprop_ms);
+    if (backward) {
+      float bprop_ms = 0;
+      cudaEventRecord(start);
+      _propagate_backward(timing_cuda, rct_cuda);
+      cudaEventRecord(stop);
+      cudaEventSynchronize(stop);
+      cudaEventElapsedTime(&bprop_ms, start, stop);
+      result.backward_ms.push_back(bprop_ms);
+    }
+  }
+
+  cudaError_t err = cudaDeviceSynchronize();
+  if (err != cudaSuccess) {
+    printf("CUDA Kernel Error: %s\n", cudaGetErrorString(err));
+  }
+
+  // ipin rows are indexed like ipin_string, opin rows like opin_string
+  size_t num_ipins = _t.ipin_string.size();
+  size_t num_opins = _t.opin_string.size();
+  result.pins = _t.ipin_string;
+  result.pins.insert(result.pins.end(), _t.opin_string.begin(), _t.opin_string.end());
+  auto copy_pins = [&](std::vector<float>& out, float* ipin_data, float* opin_data) {
+    out.resize(32*(num_ipins + num_opins));
+    memcpyD2HCUDA(out.data(),                ipin_data, 32*num_ipins);
+    memcpyD2HCUDA(out.data() + 32*num_ipins, opin_data, 32*num_opins);
+  };
+  copy_pins(result.at,   timing_cuda.ipin_timing_data_at,   timing_cuda.opin_timing_data_at);
+  copy_pins(result.slew, timing_cuda.ipin_timing_data_slew, timing_cuda.opin_timing_data_slew);
+  if (backward) {
+    copy_pins(result.rat, timing_cuda.ipin_timing_data_rat, timing_cuda.opin_timing_data_rat);
+  }
+
+  cudaEventDestroy(start);
+  cudaEventDestroy(stop);
+  _close_cuda(rct_cuda, timing_cuda);
+
+  return result;
 }

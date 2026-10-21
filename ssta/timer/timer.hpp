@@ -202,6 +202,17 @@ struct TimingResult {
   double forward_ms;
   double backward_ms;
 };
+
+// Arrival time, slew and (with backward propagation) required arrival time of every pin,
+// 32 lanes per pin (lane = mode*8 + term; modes fallEarly, fallLate, riseEarly, riseLate)
+struct PinTiming {
+  std::vector<std::string> pins;    // PIs, gate input pins and POs, then gate output pins
+  std::vector<float> at;            // pins.size() * 32
+  std::vector<float> slew;          // pins.size() * 32
+  std::vector<float> rat;           // pins.size() * 32, empty without backward propagation
+  std::vector<double> forward_ms;   // one per run
+  std::vector<double> backward_ms;  // one per run, empty without backward propagation
+};
 ////////////////////////////
 
 
@@ -238,6 +249,7 @@ class Timer {
 
     void build_connections(int num_threads) { _build_connections(num_threads); }
     TimingResult run_timed();
+    PinTiming run_pin_timing(int runs = 1, bool backward = false);
 
   private:
   
@@ -295,6 +307,8 @@ class Timer {
     TimingCUDA _copy_timing2gpu();
     void _copy_rct2cpu(RctCUDA& rct_cuda);
     void _run_cuda();
+    void _propagate_forward(TimingCUDA& timing_cuda, RctCUDA& rct_cuda);
+    void _propagate_backward(TimingCUDA& timing_cuda, RctCUDA& rct_cuda);
     void _close_cuda(RctCUDA& rct_cuda, TimingCUDA& timing_cuda);
 
     

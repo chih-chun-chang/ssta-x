@@ -31,16 +31,16 @@ __global__ void addWireParamsForward(
     nipin_beg = timing.nipin_ptr[pin_idx];
   } 
   else {
-    int level_ptr = timing.cell_level_ptr[level];
-    int cell_ptr  = level_ptr + warp_id;
-    int opin_st = timing.opin_ptr[cell_ptr];
-    pin_idx = timing.opin[opin_st];
+    // one warp per output pin of the level (a cell may have several)
+    int opin_st = timing.opin_ptr[timing.cell_level_ptr[level]];
+    pin_idx = timing.opin[opin_st + warp_id];
     at  = timing.opin_timing_data_at[pin_idx*32 + lane_id];
     in  = timing.opin_timing_data_slew[pin_idx*32 + lane_id];
     in0 = timing.opin_timing_data_slew[pin_idx*32 + 8*mode];
     port_id  = timing.wp[pin_idx+num_inputs];
     nipin_beg = timing.nipin_ptr[start_ipin + warp_id];
   }
+  if (port_id < 0) return;  // no RC net (an unused input): no taps to drive
 
   // Figure out its wire‐port and taps  
   int tap_st   = rct.taps_st[port_id];
@@ -106,6 +106,7 @@ __global__ void addWireParamsBackward(
     pin_idx  =  gate_idx;
     port_id  = timing.wp[pin_idx];
     nipin_beg = timing.nipin_ptr[pin_idx];
+    if (port_id < 0) return;  // no RC net (an unused input)
 
     // Figure out its wire‐port and taps  
     int tap_st   = rct.taps_st[port_id];
@@ -159,6 +160,7 @@ __global__ void addWireParamsBackward(
       pin_idx = timing.opin[opin_st + i];
       port_id  = timing.wp[pin_idx+num_inputs];
       nipin_beg = timing.bnipin_ptr[bnipin_ptr_each_gate + i];
+      if (port_id < 0) continue;  // output pin without an RC net
       
       int tap_st   = rct.taps_st[port_id];
       int tap_en   = rct.taps_st[port_id+1];
@@ -255,8 +257,11 @@ __global__ void getTDataSense(
 
   if (active) {
   
+  // library index of this warp's output pin: arc tables are per (lib output, lib input)
+  int o_lib = timing.opin_index[opin_st + warp_id];
+
   if (has_clk) {
-    int cell_idx = timing.tcell_timing_ptr[cell_type];
+    int cell_idx = timing.tcell_timing_ptr[cell_type] + o_lib;
     cell::TimingSense pinsense = timing.tcell_timing_sense[cell_idx];
     int ipin = timing.ipin[ipin_st];
     if (dir == 0) {
@@ -317,7 +322,7 @@ __global__ void getTDataSense(
     } 
   } // clk cell end
   else { 
-    int cell_idx = timing.cell_arch_ptr[cell_type];
+    int cell_idx = timing.cell_arch_ptr[cell_type] + o_lib*numip;
     for (int i = 0; i < numip; ++i) {
       int ipin = timing.ipin[ipin_st + i];
 
@@ -410,6 +415,7 @@ __global__ void getTDataSense(
           }
           __syncwarp();
           max_kernel(p_at_A, p_at_A, p_at_B);
+          __syncwarp();  // the root lane wrote the random term of lane root+7
           if (is_late) 
           {
             p_at_A[lane_id] = -p_at_A[lane_id];
@@ -450,13 +456,14 @@ __global__ void addDelayParam(
   int opin_st = timing.opin_ptr[cell_ptr];
   int opin_en = timing.opin_ptr[cell_ptr + 1];
   int numop = opin_en - opin_st;
-  int out_p = timing.opin[opin_st];
 
   int ipint_st = timing.ipint_ptr[cell_ptr];
 
   // one warp per opin
   int warp_id = threadIdx.x >> 5;
   if (warp_id >= numop) return;
+  int out_p = timing.opin[opin_st + warp_id];
+  int o_lib = timing.opin_index[opin_st + warp_id];  // arc tables are per (lib output, lib input)
 
   int lane_id = threadIdx.x & 31;
   int type = lane_id >> 3;
@@ -464,18 +471,18 @@ __global__ void addDelayParam(
 
   if (has_clk) {
     if (dir == 0) {
-      int opin_index = timing.opin_index[opin_st];
-      int cell_idx = (timing.tcell_timing_ptr[cell_type] + opin_index)*18;
+      int cell_idx = (timing.tcell_timing_ptr[cell_type] + o_lib)*18;
       int timing_ptr = ipint_st * 32 + (warp_id * numip * 32) + lane_id; 
 
       float at = timing.ipint_timing_data_at[timing_ptr];
       float sl = timing.ipint_timing_data_slew[timing_ptr];
 
-      int wire_id  = timing.wp[opin_st+num_inputs];
-      float* cap   = &rct.outCap[4*wire_id];
+      int wire_id  = timing.wp[out_p+num_inputs];  // the net this output pin drives
+      const float no_load[4] = {0.0f, 0.0f, 0.0f, 0.0f};  // output pin without an RC net
+      const float* cap = wire_id < 0 ? no_load : &rct.outCap[4*wire_id];
 
-      float* dep = &timing.tcell_timing_data_delay[cell_idx + warp_id*numip*18]; 
-      float* slp = &timing.tcell_timing_data_slew[cell_idx + warp_id*numip*18];
+      float* dep = &timing.tcell_timing_data_delay[cell_idx];
+      float* slp = &timing.tcell_timing_data_slew[cell_idx];
     
       int base = (type/2)*9;
       float d0 = dep[base+0], d1 = dep[base+1], d2 = dep[base+2];
@@ -504,8 +511,10 @@ __global__ void addDelayParam(
       timing.ipint_timing_data_slew [timing_ptr] = so;
     }
     else {
+      // setup/hold checks belong to the cell, not to an output pin: one warp does them
+      if (warp_id != 0) return;
       int ipin = timing.ipin[ipin_st];
-      int timing_ptr = ipin * 32 + (warp_id * numip * 32) + lane_id; // ck
+      int timing_ptr = ipin * 32 + lane_id; // ck
       float sck = timing.ipin_timing_data_slew[timing_ptr];
       float at = timing.ipin_timing_data_at[timing_ptr];
 
@@ -521,19 +530,19 @@ __global__ void addDelayParam(
         switch (type) {
           case 0:
             partner = lane_id + 24;   // 0-7 <-> 24-31
-            dep = &timing.tcell_constraint_hold_data[cell_idx + warp_id*numip*6];
+            dep = &timing.tcell_constraint_hold_data[cell_idx];
             break;
           case 1: 
             partner = lane_id + 8;    // 8-15 <-> 16-23
-            dep = &timing.tcell_constraint_setup_data[cell_idx + warp_id*numip*6];
+            dep = &timing.tcell_constraint_setup_data[cell_idx];
             break;
           case 2: 
             partner = lane_id + 8;    // 16-23 <-> 24-31
-            dep = &timing.tcell_constraint_hold_data[cell_idx + warp_id*numip*6 + 3];
+            dep = &timing.tcell_constraint_hold_data[cell_idx + 3];
             break;
           case 3: 
             partner = lane_id - 8;   // 24-31 <-> 16-23
-            dep = &timing.tcell_constraint_setup_data[cell_idx + warp_id*numip*6 + 3];
+            dep = &timing.tcell_constraint_setup_data[cell_idx + 3];
             break;
           default:
             break;
@@ -583,18 +592,19 @@ __global__ void addDelayParam(
     }
   } // clk cell
   else {
-    int cell_idx = timing.cell_arch_ptr[cell_type]*18;
+    int cell_idx = (timing.cell_arch_ptr[cell_type] + o_lib*numip)*18;
     for (int i = 0; i < numip; ++i) {
       int timing_ptr = ipint_st * 32 + (warp_id * numip * 32) + i * 32 + lane_id;
 
       float at = timing.ipint_timing_data_at[timing_ptr];
       float sl = timing.ipint_timing_data_slew[timing_ptr];
 
-      int wire_id  = timing.wp[opin_st+num_inputs];
-      float* cap   = &rct.outCap[4*wire_id];
+      int wire_id  = timing.wp[out_p+num_inputs];  // the net this output pin drives
+      const float no_load[4] = {0.0f, 0.0f, 0.0f, 0.0f};  // output pin without an RC net
+      const float* cap = wire_id < 0 ? no_load : &rct.outCap[4*wire_id];
 
-      float* dep = &timing.cell_arch_data_delay[cell_idx + warp_id*numip*18 + i*18];
-      float* slp = &timing.cell_arch_data_slew[cell_idx + warp_id*numip*18 + i*18];
+      float* dep = &timing.cell_arch_data_delay[cell_idx + i*18];
+      float* slp = &timing.cell_arch_data_slew[cell_idx + i*18];
     
       int base = (type/2)*9;
       float d0 = dep[base+0], d1 = dep[base+1], d2 = dep[base+2];
@@ -713,12 +723,13 @@ __device__ void max_kernel(float* Cc, float* Aa, float* Bb, int print) {
   float sum_1_to_6_c2 = reduce_sum_8_lanes(segmentMask, value_to_sum_c);
   
   Cc[laneId] = c;
-  if (laneId == rootLane) {
+  __syncwarp(segmentMask);  // lane root+7 stores its c first, the root lane overwrites it below
+  if (laneId == rootLane && theta != 0) {  // theta == 0 copied the larger input, random term too
     //varc -= sum_1_to_7_c2;
     varc -= sum_1_to_6_c2;
-    if (varc > 0) {
-        Cc[laneId + 7] = sqrtf(varc);
-    }
+    // random term: the variance left after the global sensitivities, 0 if Clark's
+    // variance estimate falls below them
+    Cc[laneId + 7] = varc > 0 ? sqrtf(varc) : 0.0f;
   }
 }
 
@@ -730,9 +741,9 @@ __device__ void max_kernel(float* Cc, float* Aa, float* Bb, int print) {
 __global__ void Max(
   const TimingCUDA timing, int num_inputs, int num_gates, int level)
 {
-  // Shared buffers for merging 32-wide distributions
-  __shared__ float cur_at[32], cur_sl[32];
-  __shared__ float next_at[32], next_sl[32];
+  // Shared buffers for merging 32-wide distributions, one set per warp (= per output pin)
+  __shared__ float cur_at_sh[BLOCK_MAX], cur_sl_sh[BLOCK_MAX];
+  __shared__ float next_at_sh[BLOCK_MAX], next_sl_sh[BLOCK_MAX];
 
   int gate_idx = blockIdx.x;
   if (gate_idx >= num_gates) return;
@@ -759,6 +770,10 @@ __global__ void Max(
 
   int lane_id = threadIdx.x & 31;
   int type = lane_id >> 3; // 0–3 for (fallEarly, fallLate, riseEarly, riseLate)
+  float* cur_at  = &cur_at_sh[warp_id * 32];
+  float* cur_sl  = &cur_sl_sh[warp_id * 32];
+  float* next_at = &next_at_sh[warp_id * 32];
+  float* next_sl = &next_sl_sh[warp_id * 32];
 
   // 2) Single-input: direct copy
   if (has_clk || numip <= 1) {
@@ -781,7 +796,7 @@ __global__ void Max(
   cur_at[lane_id] = at0;
   cur_sl[lane_id] = sl0;
 
-  __syncthreads();
+  __syncwarp();
 
 
   // 4) Merge each additional input via deterministic max
@@ -793,10 +808,10 @@ __global__ void Max(
     if (isEarly) { atj = -atj; slj = -slj; }
     next_at[lane_id] = atj;
     next_sl[lane_id] = slj;
-    __syncthreads();
+    __syncwarp();
     max_kernel(cur_at, cur_at, next_at);
     max_kernel(cur_sl, cur_sl, next_sl);
-    __syncthreads();
+    __syncwarp();
   }
 
   // 5) Finalize and write back
@@ -813,8 +828,8 @@ __global__ void Max(
 __global__ void MaxR(
   const TimingCUDA timing, int num_inputs, int num_gates, int level)
 {
-  // Shared buffers for merging 32-wide distributions
-  __shared__ float cur_rat[32], next_rat[32];
+  // Shared buffers for merging 32-wide distributions, one set per warp (= per input pin)
+  __shared__ float cur_rat_sh[BLOCK_MAXR], next_rat_sh[BLOCK_MAXR];
 
   int gate_idx = blockIdx.x;
   if (gate_idx >= num_gates) return;
@@ -838,6 +853,8 @@ __global__ void MaxR(
 
   int lane_id = threadIdx.x & 31;
   int type = lane_id >> 3;  // 0–3 for (fallEarly, fallLate, riseEarly, riseLate)
+  float* cur_rat  = &cur_rat_sh[warp_id * 32];
+  float* next_rat = &next_rat_sh[warp_id * 32];
 
   // 2) Single output: direct copy
   if (has_clk) return;
@@ -856,18 +873,18 @@ __global__ void MaxR(
   if (isEarly) { rat0 = -rat0; }
   cur_rat[lane_id] = rat0;
 
-  __syncthreads();
+  __syncwarp();
 
-  // 4) Merge each additional input via deterministic max
+  // 4) Merge each additional output via deterministic max
   for (int j = 1; j < numop; ++j) {
     timing_ptr = ipint_st * 32 + (warp_id * 32) + j * numip * 32 + lane_id;
-    float ratj = timing.ipin_timing_data_rat[timing_ptr];
+    float ratj = timing.ipint_timing_data_rat[timing_ptr];
 
     if (isEarly) { ratj = -ratj; }
     next_rat[lane_id] = ratj;
-    __syncthreads();
+    __syncwarp();
     max_kernel(cur_rat, cur_rat, next_rat);
-    __syncthreads();
+    __syncwarp();
   }
 
   // 5) Finalize and write back
@@ -905,6 +922,7 @@ __global__ void addWireParamsBackwardMG(
     pin_idx   = gate_idx;
     port_id   = timing.wp[pin_idx];
     nipin_beg = timing.nipin_ptr[pin_idx];
+    if (port_id < 0) return;  // no RC net (an unused input)
     int tap_st   = rct.taps_st[port_id];
     int tap_en   = rct.taps_st[port_id + 1];
     int num_taps = tap_en - tap_st;
@@ -939,6 +957,7 @@ __global__ void addWireParamsBackwardMG(
       pin_idx   = timing.opin[opin_st + i];
       port_id   = timing.wp[pin_idx + num_inputs];
       nipin_beg = timing.bnipin_ptr[bnipin_ptr_each_gate + i];
+      if (port_id < 0) continue;  // output pin without an RC net
       int tap_st   = rct.taps_st[port_id];
       int tap_en   = rct.taps_st[port_id + 1];
       int num_taps = tap_en - tap_st;
