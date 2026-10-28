@@ -105,9 +105,10 @@ void Timer::_build_connections(int num_threads) {
               _num_visited[gate]++;
               if (_num_visited[gate] == _numipins[gate]) {
                 _isvisited[gate] = true;
+                _num_fanout[gate] = 0;  // taps of all outputs: backward waits for every one
                 for (const auto& op : _gate2opin[gate]) {
                   _q2.push(op); 
-                  _num_fanout[gate] = _wires[op].size();
+                  _num_fanout[gate] += _wires[op].size();
                 }
                 _forward[l].emplace_back(gate);
               }

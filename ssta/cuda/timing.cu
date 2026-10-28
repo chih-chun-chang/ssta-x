@@ -138,7 +138,7 @@ __global__ void addWireParamsBackward(
             next_rat[lane_id] = -next_rat[lane_id];
           }
           __syncwarp();
-          max_kernel(cur_rat, cur_rat, next_rat);
+          max_kernel(cur_rat, cur_rat, next_rat, 0, true);
           __syncwarp();
           if (isLate) cur_rat[lane_id] = -cur_rat[lane_id];
         }
@@ -191,7 +191,7 @@ __global__ void addWireParamsBackward(
             next_rat[lane_id] = -next_rat[lane_id];
           }
           __syncwarp();
-          max_kernel(cur_rat, cur_rat, next_rat);
+          max_kernel(cur_rat, cur_rat, next_rat, 0, true);
           __syncwarp();
           if (isLate) cur_rat[lane_id] = -cur_rat[lane_id];
         }
@@ -414,7 +414,7 @@ __global__ void getTDataSense(
             p_at_B[lane_id] = -p_at_B[lane_id];
           }
           __syncwarp();
-          max_kernel(p_at_A, p_at_A, p_at_B);
+          max_kernel(p_at_A, p_at_A, p_at_B, 0, true);
           __syncwarp();  // the root lane wrote the random term of lane root+7
           if (is_late) 
           {
@@ -548,37 +548,38 @@ __global__ void addDelayParam(
             break;
         }
         __syncwarp();
-        sck = __shfl_sync(0xffffffff, sck, partner, 32);
+        // the clock lane of this mode; sck and at keep the clock's own lanes for the next input
+        float sck_p = __shfl_sync(0xffffffff, sck, partner, 32);
         float d0 = dep[0], d1 = dep[1], d2 = dep[2];
         float out = 0.0f;
         switch (type_id) {
           case 0: // nominal  out[0] = dep[0] + dep[1]*sck[0] + dep[2]*sin[0];
-            out = d0 + d1*sck + d2*sin;
+            out = d0 + d1*sck_p + d2*sin;
             break;
           case 7: // random‐variation out[7] = std::sqrt(sck[7]*sck[7] + sin[7]*sin[7]); 
-            out = sqrtf(sck*sck + sin*sin);
+            out = sqrtf(sck_p*sck_p + sin*sin);
             break;
           default: // general sensitivity 1–6 out[i] = dep[1]*sck[i] + dep[2]*sin[i]; // general component
-            out = d1*sck + d2*sin;
+            out = d1*sck_p + d2*sin;
             break;
         }
         
         __syncwarp();
-        at = __shfl_sync(0xffffffff, at, partner, 32);
+        float at_p = __shfl_sync(0xffffffff, at, partner, 32);
         switch (type) {
           case 0: // fall early _ADD(inPtr->ratFallEarly, instance->cpin->tData.atRiseLate, tq);
-            out += at;
+            out += at_p;
             break;
           case 1: // fall late  _SUB(inPtr->ratFallLate, instance->cpin->tData.atRiseEarly, tq);
-            out = at - out;
+            out = at_p - out;
             //inPtr->ratFallLate[0] += clockTP; // rat late calculation
             if (type_id == 0) out += clockTP;
             break;
           case 2: // rise early _ADD(inPtr->ratRiseEarly, instance->cpin->tData.atRiseLate, tq);
-            out += at;
+            out += at_p;
             break;
           case 3: // rise late  _SUB(inPtr->ratRiseLate, instance->cpin->tData.atRiseEarly, tq);
-            out = at - out;
+            out = at_p - out;
             //inPtr->ratRiseLate[0] += clockTP; // rat late calculation
             if (type_id == 0) out += clockTP;
             break;
@@ -645,7 +646,7 @@ __global__ void addDelayParam(
 }
 
 
-__device__ void max_kernel(float* Cc, float* Aa, float* Bb, int print) {
+__device__ void max_kernel(float* Cc, float* Aa, float* Bb, int print, bool centered) {
   int laneId = threadIdx.x & 31;
   int typeId = laneId % 8;
   if (laneId > 31) return;
@@ -710,9 +711,17 @@ __device__ void max_kernel(float* Cc, float* Aa, float* Bb, int print) {
   else {
       if (laneId == rootLane) {
         c = a*Ta + b*(1-Ta) + theta*ga;
-        varc = (vara + a2)*Ta + 
-               (varb + b2)*(1 - Ta) + 
-               (a + b)*theta*ga - c*c;
+        if (centered) {
+          // the same variance with the means taken out: a and b near 40 ns with sigmas of
+          // 0.1 ns leave nothing of E[max^2] - c^2 in float32
+          float d = a - b, tg = theta*ga, Tb = 1 - Ta;
+          varc = vara*Ta + varb*Tb + d*d*Ta*Tb + d*tg*(Tb - Ta) - tg*tg;
+        }
+        else {
+          varc = (vara + a2)*Ta + 
+                 (varb + b2)*(1 - Ta) + 
+                 (a + b)*theta*ga - c*c;
+        }
       }
       else {
         c = a*Ta + b*(1-Ta);
@@ -869,8 +878,9 @@ __global__ void MaxR(
   int timing_ptr = ipint_st * 32 + (warp_id * 32) + lane_id;
   float rat0 = timing.ipint_timing_data_rat[timing_ptr];
 
-  bool isEarly = ((type & 1) == 0);  // early segments require min => use -value
-  if (isEarly) { rat0 = -rat0; }
+  // required times: early takes the max, late the min (as the wire backward) => late uses -value
+  bool isLate = ((type & 1) == 1);
+  if (isLate) { rat0 = -rat0; }
   cur_rat[lane_id] = rat0;
 
   __syncwarp();
@@ -880,16 +890,16 @@ __global__ void MaxR(
     timing_ptr = ipint_st * 32 + (warp_id * 32) + j * numip * 32 + lane_id;
     float ratj = timing.ipint_timing_data_rat[timing_ptr];
 
-    if (isEarly) { ratj = -ratj; }
+    if (isLate) { ratj = -ratj; }
     next_rat[lane_id] = ratj;
     __syncwarp();
-    max_kernel(cur_rat, cur_rat, next_rat);
+    max_kernel(cur_rat, cur_rat, next_rat, 0, true);
     __syncwarp();
   }
 
   // 5) Finalize and write back
   float out_rat = cur_rat[lane_id];
-  if (isEarly) { out_rat = -out_rat; }
+  if (isLate) { out_rat = -out_rat; }
   timing.ipin_timing_data_rat[in_p*32 + lane_id] = out_rat;
 }
 
@@ -939,7 +949,7 @@ __global__ void addWireParamsBackwardMG(
         next_rat[lane_id] = rat; __syncwarp();
         if (isLate) { cur_rat[lane_id] = -cur_rat[lane_id]; next_rat[lane_id] = -next_rat[lane_id]; }
         __syncwarp();
-        max_kernel(cur_rat, cur_rat, next_rat); __syncwarp();
+        max_kernel(cur_rat, cur_rat, next_rat, 0, true); __syncwarp();
         if (isLate) cur_rat[lane_id] = -cur_rat[lane_id];
       }
     }
@@ -974,7 +984,7 @@ __global__ void addWireParamsBackwardMG(
           next_rat[lane_id] = rat; __syncwarp();
           if (isLate) { cur_rat[lane_id] = -cur_rat[lane_id]; next_rat[lane_id] = -next_rat[lane_id]; }
           __syncwarp();
-          max_kernel(cur_rat, cur_rat, next_rat); __syncwarp();
+          max_kernel(cur_rat, cur_rat, next_rat, 0, true); __syncwarp();
           if (isLate) cur_rat[lane_id] = -cur_rat[lane_id];
         }
       }

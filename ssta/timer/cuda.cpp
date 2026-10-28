@@ -324,8 +324,8 @@ void Timer::_propagate_backward(TimingCUDA& timing_cuda, RctCUDA& rct_cuda) {
 }
 
 // Propagation timed like run_timed(), then the arrival time, slew and (with backward) required
-// arrival time of every pin. Each run recomputes every pin from the PI arrival times and the
-// PO required times, so the runs give the same result.
+// arrival time of every pin. Each run starts from the state of a fresh timer (PI arrival times,
+// PO required times, zeros elsewhere), so no run can read a value a previous run left.
 PinTiming Timer::run_pin_timing(int runs, bool backward) {
   _build_connections(20);
   _get_arch_timing();
@@ -343,6 +343,14 @@ PinTiming Timer::run_pin_timing(int runs, bool backward) {
 
   PinTiming result;
   for (int i = 0; i < runs; ++i) {
+    // the pin arrays as _copy_timing2gpu() leaves them
+    memcpyH2DCUDA(timing_cuda.ipin_timing_data_at,   _t.ipin_timing_data_at.data(),   _t.ipin_timing_data_at.size());
+    memcpyH2DCUDA(timing_cuda.ipin_timing_data_slew, _t.ipin_timing_data_slew.data(), _t.ipin_timing_data_slew.size());
+    memcpyH2DCUDA(timing_cuda.ipin_timing_data_rat,  _t.ipin_timing_data_rat.data(),  _t.ipin_timing_data_rat.size());
+    memcpyH2DCUDA(timing_cuda.opin_timing_data_at,   _t.opin_timing_data_at.data(),   _t.opin_timing_data_at.size());
+    memcpyH2DCUDA(timing_cuda.opin_timing_data_slew, _t.opin_timing_data_slew.data(), _t.opin_timing_data_slew.size());
+    memcpyH2DCUDA(timing_cuda.opin_timing_data_rat,  _t.opin_timing_data_rat.data(),  _t.opin_timing_data_rat.size());
+
     float fprop_ms = 0;
     cudaEventRecord(start);
     _propagate_forward(timing_cuda, rct_cuda);
