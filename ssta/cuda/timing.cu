@@ -138,7 +138,7 @@ __global__ void addWireParamsBackward(
             next_rat[lane_id] = -next_rat[lane_id];
           }
           __syncwarp();
-          max_kernel(cur_rat, cur_rat, next_rat, 0, true);
+          max_kernel(cur_rat, cur_rat, next_rat);
           __syncwarp();
           if (isLate) cur_rat[lane_id] = -cur_rat[lane_id];
         }
@@ -191,7 +191,7 @@ __global__ void addWireParamsBackward(
             next_rat[lane_id] = -next_rat[lane_id];
           }
           __syncwarp();
-          max_kernel(cur_rat, cur_rat, next_rat, 0, true);
+          max_kernel(cur_rat, cur_rat, next_rat);
           __syncwarp();
           if (isLate) cur_rat[lane_id] = -cur_rat[lane_id];
         }
@@ -414,7 +414,7 @@ __global__ void getTDataSense(
             p_at_B[lane_id] = -p_at_B[lane_id];
           }
           __syncwarp();
-          max_kernel(p_at_A, p_at_A, p_at_B, 0, true);
+          max_kernel(p_at_A, p_at_A, p_at_B);
           __syncwarp();  // the root lane wrote the random term of lane root+7
           if (is_late) 
           {
@@ -646,7 +646,7 @@ __global__ void addDelayParam(
 }
 
 
-__device__ void max_kernel(float* Cc, float* Aa, float* Bb, int print, bool centered) {
+__device__ void max_kernel(float* Cc, float* Aa, float* Bb, int print) {
   int laneId = threadIdx.x & 31;
   int typeId = laneId % 8;
   if (laneId > 31) return;
@@ -711,17 +711,10 @@ __device__ void max_kernel(float* Cc, float* Aa, float* Bb, int print, bool cent
   else {
       if (laneId == rootLane) {
         c = a*Ta + b*(1-Ta) + theta*ga;
-        if (centered) {
-          // the same variance with the means taken out: a and b near 40 ns with sigmas of
-          // 0.1 ns leave nothing of E[max^2] - c^2 in float32
-          float d = a - b, tg = theta*ga, Tb = 1 - Ta;
-          varc = vara*Ta + varb*Tb + d*d*Ta*Tb + d*tg*(Tb - Ta) - tg*tg;
-        }
-        else {
-          varc = (vara + a2)*Ta + 
-                 (varb + b2)*(1 - Ta) + 
-                 (a + b)*theta*ga - c*c;
-        }
+        // Clark's E[max^2] - c^2 with the means taken out: computed as written, means of
+        // 1 ns (slews) to 40 ns (required times) leave nothing of the variance in float32
+        float d = a - b, tg = theta*ga, Tb = 1 - Ta;
+        varc = vara*Ta + varb*Tb + d*d*Ta*Tb + d*tg*(Tb - Ta) - tg*tg;
       }
       else {
         c = a*Ta + b*(1-Ta);
@@ -893,7 +886,7 @@ __global__ void MaxR(
     if (isLate) { ratj = -ratj; }
     next_rat[lane_id] = ratj;
     __syncwarp();
-    max_kernel(cur_rat, cur_rat, next_rat, 0, true);
+    max_kernel(cur_rat, cur_rat, next_rat);
     __syncwarp();
   }
 
@@ -949,7 +942,7 @@ __global__ void addWireParamsBackwardMG(
         next_rat[lane_id] = rat; __syncwarp();
         if (isLate) { cur_rat[lane_id] = -cur_rat[lane_id]; next_rat[lane_id] = -next_rat[lane_id]; }
         __syncwarp();
-        max_kernel(cur_rat, cur_rat, next_rat, 0, true); __syncwarp();
+        max_kernel(cur_rat, cur_rat, next_rat); __syncwarp();
         if (isLate) cur_rat[lane_id] = -cur_rat[lane_id];
       }
     }
@@ -984,7 +977,7 @@ __global__ void addWireParamsBackwardMG(
           next_rat[lane_id] = rat; __syncwarp();
           if (isLate) { cur_rat[lane_id] = -cur_rat[lane_id]; next_rat[lane_id] = -next_rat[lane_id]; }
           __syncwarp();
-          max_kernel(cur_rat, cur_rat, next_rat, 0, true); __syncwarp();
+          max_kernel(cur_rat, cur_rat, next_rat); __syncwarp();
           if (isLate) cur_rat[lane_id] = -cur_rat[lane_id];
         }
       }

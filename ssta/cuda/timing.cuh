@@ -67,5 +67,4 @@ __global__ void addWireParamsBackward(TimingCUDA timing, RctCUDA rct, int num_in
 __global__ void MaxR(const TimingCUDA timing, int num_inputs, int num_gates, int level);
 
 __device__ inline float reduce_sum_8_lanes(unsigned mask, float val);
-// centered: variance without E[max^2] - c^2, for required times (means near the clock period)
-__device__ void max_kernel(float* Cc, float* Aa, float* Bb, int print=0, bool centered=false);
+__device__ void max_kernel(float* Cc, float* Aa, float* Bb, int print=0);
