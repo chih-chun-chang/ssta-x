@@ -53,16 +53,19 @@ Celllib read_celllib(const std::filesystem::path& path) {
       if (pinTypeStr == "input") {
         celllib.lib[currentCellName]->numiPins++;
         celllib.lib[currentCellName]->iPinNames.emplace_back(pinName);
-        float fallCap, riseCap;
-        iss >> fallCap >> riseCap;
+        // one capacitance (HA_X1) is both; reading past the end left riseCap uninitialized
+        float fallCap = 0.0f, riseCap;
+        iss >> fallCap;
+        if (!(iss >> riseCap)) riseCap = fallCap;
         celllib.lib[currentCellName]->iPinFallCap[pinName] = fallCap;
         celllib.lib[currentCellName]->iPinRiseCap[pinName] = riseCap;
       }
       else if (pinTypeStr == "clock") {
         celllib.lib[currentCellName]->hasClkPin = 1;
         celllib.lib[currentCellName]->clkPinName = pinName;
-        float fallCap, riseCap;
-        iss >> fallCap >> riseCap;
+        float fallCap = 0.0f, riseCap;
+        iss >> fallCap;
+        if (!(iss >> riseCap)) riseCap = fallCap;
         celllib.lib[currentCellName]->iPinFallCap[pinName] = fallCap;
         celllib.lib[currentCellName]->iPinRiseCap[pinName] = riseCap;
       }
